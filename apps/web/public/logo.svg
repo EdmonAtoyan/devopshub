@@ -1,0 +1,93 @@
+<svg width="430" height="120" viewBox="40 50 380 110" xmlns="http://www.w3.org/2000/svg">
+<style>
+  .pixel-loop rect {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: pixelAssemble 2000ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .pixel-loop rect:nth-child(1) { --sx: -44px; --sy: -22px; animation-delay: 0ms; }
+  .pixel-loop rect:nth-child(2) { --sx: -24px; --sy: -38px; animation-delay: 50ms; }
+  .pixel-loop rect:nth-child(3) { --sx: -58px; --sy: -8px; animation-delay: 90ms; }
+  .pixel-loop rect:nth-child(4) { --sx: -36px; --sy: 30px; animation-delay: 140ms; }
+  .pixel-loop rect:nth-child(5) { --sx: -22px; --sy: 54px; animation-delay: 180ms; }
+  .pixel-loop rect:nth-child(6) { --sx: 32px; --sy: -28px; animation-delay: 230ms; }
+  .pixel-loop rect:nth-child(7) { --sx: 52px; --sy: 8px; animation-delay: 280ms; }
+  .pixel-loop rect:nth-child(8) { --sx: 34px; --sy: 42px; animation-delay: 330ms; }
+  .pixel-loop rect:nth-child(9) { --sx: -18px; --sy: 26px; animation-delay: 380ms; }
+  .pixel-loop rect:nth-child(10) { --sx: -8px; --sy: -42px; animation-delay: 420ms; }
+  .pixel-loop rect:nth-child(11) { --sx: 56px; --sy: -30px; animation-delay: 470ms; }
+  .pixel-loop rect:nth-child(12) { --sx: 44px; --sy: -48px; animation-delay: 520ms; }
+  .pixel-loop rect:nth-child(13) { --sx: 66px; --sy: -10px; animation-delay: 570ms; }
+  .pixel-loop rect:nth-child(14) { --sx: 58px; --sy: 12px; animation-delay: 610ms; }
+  .pixel-loop rect:nth-child(15) { --sx: 42px; --sy: 48px; animation-delay: 660ms; }
+  .pixel-loop rect:nth-child(16) { --sx: -28px; --sy: -12px; animation-delay: 710ms; }
+  .pixel-loop rect:nth-child(17) { --sx: -46px; --sy: 18px; animation-delay: 760ms; }
+  .pixel-loop rect:nth-child(18) { --sx: -36px; --sy: 46px; animation-delay: 800ms; }
+  .pixel-loop rect:nth-child(19) { --sx: 18px; --sy: 34px; animation-delay: 850ms; }
+  .pixel-loop rect:nth-child(20) { --sx: 26px; --sy: -24px; animation-delay: 900ms; }
+
+  @keyframes pixelAssemble {
+    0% {
+      opacity: 0;
+      transform: translate(var(--sx), var(--sy)) scale(0.82);
+    }
+    100% {
+      opacity: 1;
+      transform: translate(0, 0) scale(1);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .pixel-loop rect {
+      animation: none;
+      opacity: 1;
+      transform: none;
+    }
+  }
+</style>
+
+<g fill="black" class="pixel-loop">
+
+<!-- LEFT LOOP -->
+<rect x="60" y="60" width="14" height="14" rx="2" ry="2"></rect>
+<rect x="78" y="60" width="14" height="14" rx="2" ry="2"></rect>
+
+<rect x="42" y="78" width="14" height="14" rx="2" ry="2"></rect>
+<rect x="42" y="96" width="14" height="14" rx="2" ry="2"></rect>
+<rect x="42" y="114" width="14" height="14" rx="2" ry="2"></rect>
+
+<rect x="96" y="78" width="14" height="14" rx="2" ry="2"></rect>
+<rect x="114" y="96" width="14" height="14" rx="2" ry="2"></rect>
+<rect x="96" y="114" width="14" height="14" rx="2" ry="2"></rect>
+
+<rect x="60" y="132" width="14" height="14" rx="2" ry="2"></rect>
+<rect x="78" y="132" width="14" height="14" rx="2" ry="2"></rect>
+
+<!-- RIGHT LOOP -->
+<rect x="150" y="60" width="14" height="14" rx="2" ry="2"></rect>
+<rect x="168" y="60" width="14" height="14" rx="2" ry="2"></rect>
+
+<rect x="186" y="78" width="14" height="14" rx="2" ry="2"></rect>
+<rect x="186" y="96" width="14" height="14" rx="2" ry="2"></rect>
+<rect x="186" y="114" width="14" height="14" rx="2" ry="2"></rect>
+
+<rect x="132" y="78" width="14" height="14" rx="2" ry="2"></rect>
+<rect x="114" y="96" width="14" height="14" rx="2" ry="2"></rect>
+<rect x="132" y="114" width="14" height="14" rx="2" ry="2"></rect>
+
+<rect x="150" y="132" width="14" height="14" rx="2" ry="2"></rect>
+<rect x="168" y="132" width="14" height="14" rx="2" ry="2"></rect>
+
+</g>
+
+<!-- TEXT -->
+<text x="222" y="110" font-family="Arial, Helvetica, sans-serif" font-size="52" fill="black">
+DevOps
+</text>
+
+<text x="222" y="145" font-family="Arial, Helvetica, sans-serif" font-size="26" letter-spacing="6" fill="black">
+HUB
+</text>
+
+</svg>

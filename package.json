@@ -1,0 +1,22 @@
+{
+  "name": "devops-community-platform",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Cloud-native DevOps social platform monorepo",
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev:web": "npm --workspace @devops-community/web run dev",
+    "dev:api": "npm --workspace @devops-community/api run start:dev",
+    "build": "npm run build:web && npm run build:api",
+    "build:web": "npm --workspace @devops-community/web run build",
+    "build:api": "npm --workspace @devops-community/api run build",
+    "lint": "npm run lint:web && npm run lint:api",
+    "lint:web": "npm --workspace @devops-community/web run lint",
+    "lint:api": "npm --workspace @devops-community/api run lint",
+    "db:generate": "npm --workspace @devops-community/api exec -- prisma generate --schema prisma/schema.prisma",
+    "db:migrate": "npm --workspace @devops-community/api exec -- prisma migrate dev --schema prisma/schema.prisma",
+    "db:studio": "npm --workspace @devops-community/api exec -- prisma studio --schema prisma/schema.prisma"
+  }
+}

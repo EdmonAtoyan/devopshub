@@ -1,0 +1,34 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="auth-layout">
+  <div class="brand-panel">
+    <h1>OpsFeed</h1>
+    <p>Social stream for DevOps engineers.</p>
+    <ul>
+      <li>Share outages, fixes, and lessons.</li>
+      <li>Follow platform teams and SREs.</li>
+      <li>Keep your feed signal-first.</li>
+    </ul>
+  </div>
+
+  <form class="card auth-card" method="post">
+    <h2>{{ 'Create account' if mode == 'register' else 'Welcome back' }}</h2>
+
+    <label>Username
+      <input type="text" name="username" minlength="3" required />
+    </label>
+
+    <label>Password
+      <input type="password" name="password" minlength="4" required />
+    </label>
+
+    <button type="submit">{{ 'Sign up' if mode == 'register' else 'Log in' }}</button>
+
+    {% if mode == 'register' %}
+      <p>Already have an account? <a href="{{ url_for('login') }}">Log in</a></p>
+    {% else %}
+      <p>New here? <a href="{{ url_for('register') }}">Create account</a></p>
+    {% endif %}
+  </form>
+</div>
+{% endblock %}
