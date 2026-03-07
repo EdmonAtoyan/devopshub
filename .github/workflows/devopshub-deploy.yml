@@ -1,0 +1,323 @@
+name: DevOps Hub Platform CI/CD
+
+on:
+  pull_request:
+    paths:
+      - "apps/api/**"
+      - "apps/web/**"
+      - "prisma/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".dockerignore"
+      - "devops-hub-platform/**"
+      - ".github/workflows/devopshub-deploy.yml"
+  push:
+    branches: [main]
+    paths:
+      - "apps/api/**"
+      - "apps/web/**"
+      - "prisma/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".dockerignore"
+      - "devops-hub-platform/**"
+      - ".github/workflows/devopshub-deploy.yml"
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: devops-hub-platform-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  AWS_REGION: eu-central-1
+  EKS_CLUSTER_NAME: devops-hub-platform-eks
+  IMAGE_TAG: sha-${{ github.sha }}-${{ github.run_number }}-${{ github.run_attempt }}
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Check Terraform formatting
+        working-directory: devops-hub-platform/platform/terraform
+        run: terraform fmt -check -recursive
+
+      - name: Validate Terraform
+        working-directory: devops-hub-platform/platform/terraform
+        run: |
+          terraform init -backend=false
+          terraform validate
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Validate production overlay
+        working-directory: devops-hub-platform/platform/k8s/overlays/prod
+        run: |
+          cp config.env.example config.env
+          cp secrets.env.example secrets.env
+          kubectl kustomize . >/dev/null
+
+  smoke-images:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image_name: frontend
+            context: .
+            dockerfile: ./apps/web/Dockerfile
+          - image_name: community-api
+            context: .
+            dockerfile: ./apps/api/Dockerfile
+          - image_name: api-gateway
+            context: ./devops-hub-platform/microservices/api-gateway
+            dockerfile: ./devops-hub-platform/microservices/api-gateway/Dockerfile
+          - image_name: auth-service
+            context: ./devops-hub-platform/microservices/auth-service
+            dockerfile: ./devops-hub-platform/microservices/auth-service/Dockerfile
+          - image_name: profile-service
+            context: ./devops-hub-platform/microservices/profile-service
+            dockerfile: ./devops-hub-platform/microservices/profile-service/Dockerfile
+          - image_name: notification-service
+            context: ./devops-hub-platform/microservices/notification-service
+            dockerfile: ./devops-hub-platform/microservices/notification-service/Dockerfile
+          - image_name: media-service
+            context: ./devops-hub-platform/microservices/media-service
+            dockerfile: ./devops-hub-platform/microservices/media-service/Dockerfile
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Smoke build image
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: false
+          provenance: false
+          tags: ${{ matrix.image_name }}:ci
+          cache-from: type=gha,scope=${{ matrix.image_name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image_name }}
+
+  build-and-push:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image_name: frontend
+            context: .
+            dockerfile: ./apps/web/Dockerfile
+          - image_name: community-api
+            context: .
+            dockerfile: ./apps/api/Dockerfile
+          - image_name: api-gateway
+            context: ./devops-hub-platform/microservices/api-gateway
+            dockerfile: ./devops-hub-platform/microservices/api-gateway/Dockerfile
+          - image_name: auth-service
+            context: ./devops-hub-platform/microservices/auth-service
+            dockerfile: ./devops-hub-platform/microservices/auth-service/Dockerfile
+          - image_name: profile-service
+            context: ./devops-hub-platform/microservices/profile-service
+            dockerfile: ./devops-hub-platform/microservices/profile-service/Dockerfile
+          - image_name: notification-service
+            context: ./devops-hub-platform/microservices/notification-service
+            dockerfile: ./devops-hub-platform/microservices/notification-service/Dockerfile
+          - image_name: media-service
+            context: ./devops-hub-platform/microservices/media-service
+            dockerfile: ./devops-hub-platform/microservices/media-service/Dockerfile
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ secrets.AWS_GITHUB_ACTIONS_ROLE_ARN }}
+
+      - name: Resolve AWS account
+        id: aws-account
+        run: echo "account_id=$(aws sts get-caller-identity --query Account --output text)" >> "$GITHUB_OUTPUT"
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Ensure ECR repository exists
+        run: |
+          aws ecr describe-repositories --repository-names "${{ matrix.image_name }}" >/dev/null 2>&1 || \
+          aws ecr create-repository --repository-name "${{ matrix.image_name }}"
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: true
+          provenance: false
+          tags: ${{ steps.aws-account.outputs.account_id }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ matrix.image_name }}:${{ env.IMAGE_TAG }}
+          cache-from: type=gha,scope=${{ matrix.image_name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image_name }}
+
+  deploy:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    needs: build-and-push
+    outputs:
+      website_url: ${{ steps.ingress.outputs.website_url }}
+      ingress_host: ${{ steps.ingress.outputs.ingress_host }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ secrets.AWS_GITHUB_ACTIONS_ROLE_ARN }}
+
+      - name: Resolve AWS account
+        id: aws-account
+        run: echo "account_id=$(aws sts get-caller-identity --query Account --output text)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Update kubeconfig
+        run: aws eks update-kubeconfig --region "$AWS_REGION" --name "$EKS_CLUSTER_NAME"
+
+      - name: Prepare overlay runtime configuration
+        working-directory: devops-hub-platform/platform/k8s/overlays/prod
+        env:
+          SITE_URL: ${{ secrets.NEXT_PUBLIC_SITE_URL }}
+          CORS_ORIGIN: ${{ secrets.CORS_ORIGIN }}
+        run: |
+          site_url="${SITE_URL}"
+          cors_origin="${CORS_ORIGIN}"
+
+          if [ -z "$cors_origin" ]; then
+            cors_origin="$site_url"
+          fi
+
+          cat > config.env <<EOF
+          NODE_ENV=production
+          LOG_LEVEL=info
+          OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger-collector.observability.svc.cluster.local:4318
+          REDIS_HOST=${{ secrets.REDIS_HOST }}
+          REDIS_PORT=6379
+          API_UPSTREAM_URL=http://api-gateway.devops-hub.svc.cluster.local
+          COMMUNITY_API_URL=http://community-api.devops-hub.svc.cluster.local
+          AUTH_SERVICE_URL=http://auth-service.devops-hub.svc.cluster.local
+          PROFILE_SERVICE_URL=http://profile-service.devops-hub.svc.cluster.local
+          NOTIFICATION_SERVICE_URL=http://notification-service.devops-hub.svc.cluster.local
+          MEDIA_SERVICE_URL=http://media-service.devops-hub.svc.cluster.local
+          NEXT_PUBLIC_SITE_URL=${site_url}
+          CORS_ORIGIN=${cors_origin}
+          RESET_PASSWORD_BASE_URL=${site_url}
+          EOF
+          cat > secrets.env <<EOF
+          DATABASE_URL=${{ secrets.DATABASE_URL }}
+          JWT_SECRET=${{ secrets.JWT_SECRET }}
+          REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
+          EOF
+
+      - name: Set release image tags
+        working-directory: devops-hub-platform/platform/k8s/overlays/prod
+        env:
+          ACCOUNT_ID: ${{ steps.aws-account.outputs.account_id }}
+        run: |
+          services=(frontend community-api api-gateway auth-service profile-service notification-service media-service)
+          for service in "${services[@]}"; do
+            sed -i "/name: ${service}/{n;s|newName:.*|    newName: ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${service}|;n;s|newTag:.*|    newTag: ${IMAGE_TAG}|;}" kustomization.yaml
+          done
+
+      - name: Deploy platform manifests
+        run: kubectl apply -k devops-hub-platform/platform/k8s/overlays/prod
+
+      - name: Wait for rollouts
+        run: |
+          kubectl rollout status deployment/frontend -n devops-hub --timeout=300s
+          kubectl rollout status deployment/community-api -n devops-hub --timeout=300s
+          kubectl rollout status deployment/api-gateway -n devops-hub --timeout=300s
+          kubectl rollout status deployment/auth-service -n devops-hub --timeout=300s
+          kubectl rollout status deployment/profile-service -n devops-hub --timeout=300s
+          kubectl rollout status deployment/notification-service -n devops-hub --timeout=300s
+          kubectl rollout status deployment/media-service -n devops-hub --timeout=300s
+
+      - name: Resolve ingress hostname
+        id: ingress
+        run: |
+          ingress_host=""
+          for attempt in $(seq 1 30); do
+            ingress_host=$(kubectl get ingress platform-ingress -n devops-hub -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
+            if [ -n "$ingress_host" ]; then
+              break
+            fi
+            sleep 10
+          done
+
+          if [ -n "$ingress_host" ]; then
+            echo "ingress_host=${ingress_host}" >> "$GITHUB_OUTPUT"
+            echo "website_url=http://${ingress_host}/" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check public endpoints
+        if: steps.ingress.outputs.ingress_host != ''
+        env:
+          INGRESS_HOST: ${{ steps.ingress.outputs.ingress_host }}
+        run: |
+          curl --fail --retry 12 --retry-delay 10 "http://${INGRESS_HOST}/"
+          curl --fail --retry 12 --retry-delay 10 "http://${INGRESS_HOST}/api/health"
+          curl --fail --retry 12 --retry-delay 10 "http://${INGRESS_HOST}/auth/health"
+          curl --fail --retry 12 --retry-delay 10 "http://${INGRESS_HOST}/profiles/health"
+          curl --fail --retry 12 --retry-delay 10 "http://${INGRESS_HOST}/notifications/health"
+          curl --fail --retry 12 --retry-delay 10 "http://${INGRESS_HOST}/media/health"
+
+      - name: Publish deployment summary
+        env:
+          INGRESS_HOST: ${{ steps.ingress.outputs.ingress_host }}
+          WEBSITE_URL: ${{ steps.ingress.outputs.website_url }}
+        run: |
+          if [ -n "${WEBSITE_URL}" ]; then
+            {
+              echo "### DevOps Hub deployment"
+              echo "- Release tag: ${IMAGE_TAG}"
+              echo "- Website URL: ${WEBSITE_URL}"
+              echo "- API gateway: http://${INGRESS_HOST}/api"
+              echo "- API health: http://${INGRESS_HOST}/api/health"
+              echo "- Auth health: http://${INGRESS_HOST}/auth/health"
+              echo "- Profile health: http://${INGRESS_HOST}/profiles/health"
+              echo "- Notifications health: http://${INGRESS_HOST}/notifications/health"
+              echo "- Media health: http://${INGRESS_HOST}/media/health"
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            {
+              echo "### DevOps Hub deployment"
+              echo "- Release tag: ${IMAGE_TAG}"
+              echo "- Ingress hostname is still pending from the load balancer controller."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi

@@ -1,0 +1,10 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: profile-service-pdb
+  namespace: devops-hub
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: profile-service

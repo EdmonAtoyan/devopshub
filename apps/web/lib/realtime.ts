@@ -36,6 +36,7 @@ export async function connectRealtime(query?: Record<string, string>) {
 
   return io(undefined, {
     transports: ["websocket", "polling"],
+    withCredentials: true,
     query,
   });
 }

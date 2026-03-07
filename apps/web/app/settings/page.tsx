@@ -161,7 +161,6 @@ export default function SettingsPage() {
             <h3 className="text-base font-semibold">Profile Picture</h3>
             <div className="mt-3 h-44 w-44 overflow-hidden rounded-xl border border-line">
               {avatarPreview || profile?.avatarUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={avatarPreview || assetUrl(profile?.avatarUrl || "")}
                   alt="Profile"

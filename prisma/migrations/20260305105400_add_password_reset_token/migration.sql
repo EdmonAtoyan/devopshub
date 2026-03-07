@@ -1,0 +1,3 @@
+-- This migration intentionally does nothing.
+-- The original local draft attempted to drop an index before the
+-- password reset table existed, which broke fresh deploys.

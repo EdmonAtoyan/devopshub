@@ -62,7 +62,7 @@ services:
         echo 'Waiting for migration deploy...';
         sleep 2;
       done;
-      until npm --workspace @devops-community/api exec -- prisma db push --schema prisma/schema.prisma; do
+      until npm --workspace @devops-community/api exec -- prisma db push --schema prisma/schema.prisma --skip-generate; do
         echo 'Waiting for schema sync...';
         sleep 2;
       done;

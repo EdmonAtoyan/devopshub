@@ -193,9 +193,9 @@ export function Shell({ children }: { children: ReactNode }) {
     };
 
     const setup = async () => {
-      socket = await connectRealtime({ userId: me.id });
+      socket = await connectRealtime();
       if (!socket || !mounted) return;
-      socket.emit("join_user", { userId: me.id });
+      socket.emit("join_user");
       socket.on("new_notification", onNewNotification);
     };
 
@@ -328,7 +328,6 @@ export function Shell({ children }: { children: ReactNode }) {
                     >
                       <div className="h-8 w-8 overflow-hidden rounded-full border border-line bg-bg">
                         {user.avatarUrl ? (
-                          // eslint-disable-next-line @next/next/no-img-element
                           <img src={assetUrl(user.avatarUrl)} alt={user.username} className="h-full w-full object-cover" />
                         ) : (
                           <div className="flex h-full w-full items-center justify-center text-[11px] text-slate-500">

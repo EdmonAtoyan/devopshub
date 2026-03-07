@@ -6,7 +6,7 @@
     "start:dev": "nest start --watch --host 0.0.0.0",
     "build": "nest build",
     "start": "node dist/main",
-    "lint": "eslint \"src/**/*.ts\"",
+    "lint": "eslint . --ext .ts --max-warnings=0",
     "format": "prettier --write \"src/**/*.ts\""
   },
   "dependencies": {

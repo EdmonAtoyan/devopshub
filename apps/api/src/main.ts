@@ -10,6 +10,16 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   app.setGlobalPrefix("api");
   app.use(cookieParser());
+  app
+    .getHttpAdapter()
+    .getInstance()
+    .get("/api/health", (_req: express.Request, res: express.Response) => {
+      res.json({
+        service: "community-api",
+        status: "ok",
+        timestamp: new Date().toISOString(),
+      });
+    });
   const uploadDir = resolveUploadRoot();
   fs.mkdirSync(uploadDir, { recursive: true });
   app.use("/uploads", express.static(uploadDir));

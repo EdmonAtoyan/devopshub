@@ -18,5 +18,9 @@
     "db:generate": "npm --workspace @devops-community/api exec -- prisma generate --schema prisma/schema.prisma",
     "db:migrate": "npm --workspace @devops-community/api exec -- prisma migrate dev --schema prisma/schema.prisma",
     "db:studio": "npm --workspace @devops-community/api exec -- prisma studio --schema prisma/schema.prisma"
+  },
+  "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^8.56.1",
+    "@typescript-eslint/parser": "^8.56.1"
   }
 }

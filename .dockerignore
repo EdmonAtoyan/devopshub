@@ -8,6 +8,7 @@ logs
 
 apps/*/.next
 apps/*/dist
+devops-hub-platform
 coverage
 npm-debug.log*
 .DS_Store
