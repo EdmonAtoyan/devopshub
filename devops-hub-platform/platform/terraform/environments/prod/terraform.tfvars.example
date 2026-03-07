@@ -13,7 +13,7 @@ ecr_repository_names = [
   "notification-service"
 ]
 
-# GitHub OIDC trust configuration (replace with your org/repo)
+# GitHub OIDC trust configuration
 github_oidc_role_name = "devops-hub-github-actions-role"
-github_repositories   = ["your-org/devops-hub-platform"]
+github_repositories   = ["EdmonAtoyan/devopshub"]
 github_branch         = "main"
