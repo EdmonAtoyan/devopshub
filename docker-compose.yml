@@ -42,11 +42,11 @@ services:
       RESET_PASSWORD_BASE_URL: ${RESET_PASSWORD_BASE_URL:-http://localhost:3000}
       EMAIL_VERIFICATION_BASE_URL: ${EMAIL_VERIFICATION_BASE_URL:-http://localhost:3000}
       CORS_ORIGIN: "*"
-      SMTP_HOST: smtp.gmail.com
-      SMTP_PORT: 587
-      SMTP_USER: edmon.atoyan.00@gmail.com
+      SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER}
       SMTP_PASS: ${SMTP_PASS}
-      SMTP_FROM: DevOpsHub <edmon.atoyan.00@gmail.com>
+      SMTP_FROM: ${SMTP_FROM}
       NODE_ENV: production
     ports:
       - "4000:4000"
