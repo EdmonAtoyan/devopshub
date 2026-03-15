@@ -37,11 +37,16 @@ services:
       REDIS_HOST: redis
       REDIS_URL: redis://redis:6379
       API_PORT: 4000
-      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set in .env}
+      JWT_SECRET: ${JWT_SECRET:-devopshub_super_secret}
       NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-http://localhost:3000}
       RESET_PASSWORD_BASE_URL: ${RESET_PASSWORD_BASE_URL:-http://localhost:3000}
       EMAIL_VERIFICATION_BASE_URL: ${EMAIL_VERIFICATION_BASE_URL:-http://localhost:3000}
-      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
+      CORS_ORIGIN: "*"
+      SMTP_HOST: smtp.gmail.com
+      SMTP_PORT: 587
+      SMTP_USER: edmon.atoyan.00@gmail.com
+      SMTP_PASS: ${iigempgwwmdkcrkf}
+      SMTP_FROM: DevOpsHub <edmon.atoyan.00@gmail.com>
       NODE_ENV: production
     ports:
       - "4000:4000"
