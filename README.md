@@ -69,6 +69,8 @@ After changing `.env` or `docker-compose.yml`, recreate the app containers so th
 docker compose up -d --build --force-recreate api web
 ```
 
+If you are accessing the app directly over `http://SERVER_IP:3000` without HTTPS, the login cookie now automatically stays non-secure so browser sessions persist correctly. Once you move behind HTTPS, the app automatically upgrades the auth cookie back to `Secure`. You only need `COOKIE_SECURE` or `COOKIE_SAME_SITE` when you want to override that default behavior.
+
 ## Local Node Workflow
 
 If you want to run the apps directly with Node instead of Docker:

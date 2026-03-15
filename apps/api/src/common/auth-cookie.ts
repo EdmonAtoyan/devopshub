@@ -23,6 +23,14 @@ function resolveSameSite(request?: Request): SameSitePolicy {
 
   try {
     const originUrl = new URL(origin);
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL?.trim();
+    if (siteUrl) {
+      const publicSiteUrl = new URL(siteUrl);
+      if (publicSiteUrl.hostname === originUrl.hostname) {
+        return "lax";
+      }
+    }
+
     const host = (request.get("x-forwarded-host") || request.get("host") || "").split(",")[0].trim();
     const proto = (request.get("x-forwarded-proto") || request.protocol || "http").split(",")[0].trim();
     if (!host) return "lax";
@@ -43,13 +51,26 @@ function resolveSecure(request: Request | undefined, sameSite: SameSitePolicy): 
 
   if (sameSite === "none") return true;
 
-  if (!request) return process.env.NODE_ENV === "production";
+  if (!request) {
+    return usesHttps(process.env.NEXT_PUBLIC_SITE_URL) || usesHttps(process.env.RESET_PASSWORD_BASE_URL);
+  }
 
   const forwardedProto = request.get("x-forwarded-proto");
   if (forwardedProto?.split(",")[0].trim() === "https") return true;
   if (request.secure) return true;
+  if (usesHttps(request.get("origin"))) return true;
+  if (usesHttps(process.env.NEXT_PUBLIC_SITE_URL)) return true;
+  return false;
+}
 
-  return process.env.NODE_ENV === "production";
+function usesHttps(value: string | undefined) {
+  if (!value) return false;
+
+  try {
+    return new URL(value).protocol === "https:";
+  } catch {
+    return false;
+  }
 }
 
 export function authCookieOptions(request?: Request): CookieOptions {
