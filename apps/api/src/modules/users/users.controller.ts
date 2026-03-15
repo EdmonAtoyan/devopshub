@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Query,
   Req,
   Get,
   Param,
@@ -14,15 +15,27 @@ import {
   UseInterceptors,
 } from "@nestjs/common";
 import { FileInterceptor } from "@nestjs/platform-express";
+import { Throttle } from "@nestjs/throttler";
 import { Request, Response } from "express";
-import * as fs from "node:fs";
-import * as path from "node:path";
 import { authCookieClearOptions } from "../../common/auth-cookie";
+import {
+  createUploadFilename,
+  ensureAvatarUploadDirExists,
+  resolveAvatarExtension,
+  resolveAvatarUploadDir,
+} from "../../common/uploads";
+import { toNotificationDto } from "../../common/notifications";
+import { clampInt } from "../../common/query";
 import { CurrentUser } from "../../common/current-user.decorator";
 import { JwtAuthGuard } from "../../common/jwt-auth.guard";
+import { OptionalJwtAuthGuard } from "../../common/optional-jwt-auth.guard";
 import { NotificationsGateway } from "../notifications/notifications.gateway";
 import { PrismaService } from "../../prisma.service";
-import { UpdateProfileDto } from "./dto";
+import { AuthService } from "../auth/auth.service";
+import { CaptchaService } from "../auth/captcha.service";
+import { EmailValidationService } from "../auth/email-validation.service";
+import { buildPostInclude, enrichPosts } from "../feed/post-query";
+import { UpdateProfileDto, VerifyAccountDto } from "./dto";
 
 const { diskStorage } = require("multer");
 
@@ -31,6 +44,9 @@ export class UsersController {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notificationsGateway: NotificationsGateway,
+    private readonly authService: AuthService,
+    private readonly captchaService: CaptchaService,
+    private readonly emailValidationService: EmailValidationService,
   ) {}
 
   @Get(":username")
@@ -40,6 +56,7 @@ export class UsersController {
       select: {
         id: true,
         username: true,
+        verified: true,
         name: true,
         bio: true,
         avatarUrl: true,
@@ -74,6 +91,38 @@ export class UsersController {
     };
   }
 
+  @UseGuards(OptionalJwtAuthGuard)
+  @Get(":username/posts")
+  async getPostsByUsername(
+    @Param("username") username: string,
+    @Query("limit") limit = "12",
+    @Query("commentLimit") commentLimit = "0",
+    @CurrentUser() currentUser: { userId: string } | null = null,
+  ) {
+    const safeLimit = clampInt(limit, 1, 30, 12);
+    const safeCommentLimit = clampInt(commentLimit, 0, 20, 0);
+    const profileUser = await this.prisma.user.findUnique({
+      where: { username },
+      select: { id: true },
+    });
+
+    if (!profileUser) return [];
+
+    const posts = await this.prisma.post.findMany({
+      where: { authorId: profileUser.id },
+      orderBy: { createdAt: "desc" },
+      take: safeLimit,
+      include: buildPostInclude(safeCommentLimit),
+    });
+
+    return enrichPosts(
+      this.prisma,
+      posts as Array<Record<string, unknown> & { id: string; _count: { likes: number; comments: number; bookmarks: number } }>,
+      safeCommentLimit,
+      currentUser?.userId,
+    );
+  }
+
   @UseGuards(JwtAuthGuard)
   @Get("me/profile")
   me(@CurrentUser() user: { userId: string }) {
@@ -82,6 +131,7 @@ export class UsersController {
       select: {
         id: true,
         username: true,
+        verified: true,
         email: true,
         name: true,
         bio: true,
@@ -91,16 +141,54 @@ export class UsersController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Get("me/bookmarks")
+  async getSavedPosts(
+    @CurrentUser() user: { userId: string },
+    @Query("limit") limit = "30",
+  ) {
+    const safeLimit = clampInt(limit, 1, 50, 30);
+    const entries = await this.prisma.postBookmark.findMany({
+      where: { userId: user.userId },
+      orderBy: { createdAt: "desc" },
+      take: safeLimit,
+      include: {
+        post: {
+          include: buildPostInclude(4),
+        },
+      },
+    });
+
+    const enrichedPosts = await enrichPosts(
+      this.prisma,
+      entries.map((entry: { post: Record<string, unknown> & { id: string; _count: { likes: number; comments: number; bookmarks: number } } }) => entry.post),
+      4,
+      user.userId,
+    );
+
+    return entries.map((entry: { createdAt: Date }, index: number) => ({
+      savedAt: entry.createdAt,
+      post: enrichedPosts[index],
+    }));
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Patch("me/profile")
   async updateProfile(
     @CurrentUser() user: { userId: string },
     @Body() dto: UpdateProfileDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
   ) {
     const data: {
       username?: string;
       email?: string;
       bio?: string;
     } = {};
+    const currentUser = await this.prisma.user.findUnique({
+      where: { id: user.userId },
+      select: { email: true },
+    });
+    let emailChanged = false;
 
     if (dto.username !== undefined) {
       const username = dto.username.trim().toLowerCase();
@@ -117,7 +205,7 @@ export class UsersController {
     }
 
     if (dto.email !== undefined) {
-      const email = dto.email.trim().toLowerCase();
+      const email = await this.emailValidationService.normalizeAndValidate(dto.email);
       const existing = await this.prisma.user.findUnique({
         where: { email },
         select: { id: true },
@@ -125,22 +213,70 @@ export class UsersController {
       if (existing && existing.id !== user.userId) {
         throw new BadRequestException("Email already in use");
       }
-      data.email = email;
+
+      if (email !== currentUser?.email) {
+        data.email = email;
+        emailChanged = true;
+      }
     }
 
     if (dto.bio !== undefined) data.bio = dto.bio.trim();
 
-    return this.prisma.user.update({
+    const updated = await this.prisma.user.update({
       where: { id: user.userId },
       data,
       select: {
         id: true,
         username: true,
+        verified: true,
         email: true,
         name: true,
         bio: true,
         avatarUrl: true,
       },
+    });
+
+    if (emailChanged) {
+      await this.prisma.$executeRaw`
+        UPDATE "User"
+        SET "emailVerifiedAt" = NULL
+        WHERE "id" = ${updated.id}
+      `;
+      await this.authService.sendVerificationForUserId(updated.id);
+      res.clearCookie("access_token", authCookieClearOptions(req));
+      return { ...updated, requiresEmailVerification: true };
+    }
+
+    return updated;
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @Post("me/verification")
+  async verifyMyAccount(
+    @CurrentUser() user: { userId: string },
+    @Body() dto: VerifyAccountDto,
+    @Req() req: Request,
+  ) {
+    const account = await this.prisma.user.findUnique({
+      where: { id: user.userId },
+      select: { id: true, verified: true },
+    });
+
+    if (!account) {
+      throw new BadRequestException("User not found");
+    }
+
+    if (account.verified) {
+      return { verified: true };
+    }
+
+    await this.captchaService.assertToken(dto.captchaToken, this.resolveRequestIp(req));
+
+    return this.prisma.user.update({
+      where: { id: user.userId },
+      data: { verified: true },
+      select: { verified: true },
     });
   }
 
@@ -150,18 +286,15 @@ export class UsersController {
     FileInterceptor("avatar", {
       storage: diskStorage({
         destination: (_req: unknown, _file: unknown, cb: (error: Error | null, destination: string) => void) => {
-          const dir = resolveUploadDir();
-          fs.mkdirSync(dir, { recursive: true });
-          cb(null, dir);
+          ensureAvatarUploadDirExists();
+          cb(null, resolveAvatarUploadDir());
         },
         filename: (
           _req: unknown,
-          file: { originalname?: string },
+          file: { mimetype: string },
           cb: (error: Error | null, filename: string) => void,
         ) => {
-          const ext = path.extname(file.originalname || "").toLowerCase() || ".png";
-          const name = `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`;
-          cb(null, name);
+          cb(null, createUploadFilename(resolveAvatarExtension(file.mimetype)));
         },
       }),
       limits: { fileSize: 2 * 1024 * 1024 },
@@ -188,6 +321,7 @@ export class UsersController {
       select: {
         id: true,
         username: true,
+        verified: true,
         email: true,
         name: true,
         bio: true,
@@ -206,6 +340,18 @@ export class UsersController {
     await this.prisma.user.delete({ where: { id: user.userId } });
     res.clearCookie("access_token", authCookieClearOptions(req));
     return { success: true };
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get(":id/following")
+  async getFollowState(@Param("id") followeeId: string, @CurrentUser() user: { userId: string }) {
+    if (user.userId === followeeId) return { following: false };
+
+    const existing = await this.prisma.follow.findUnique({
+      where: { followerId_followeeId: { followerId: user.userId, followeeId } },
+    });
+
+    return { following: !!existing };
   }
 
   @UseGuards(JwtAuthGuard)
@@ -237,14 +383,7 @@ export class UsersController {
         message: `${follower?.username || "Someone"} started following you`,
       },
     });
-    this.notificationsGateway.emitNotification(followeeId, {
-      id: notification.id,
-      userId: notification.userId,
-      type: "FOLLOW",
-      message: notification.message,
-      createdAt: notification.createdAt,
-      isRead: notification.read,
-    });
+    this.notificationsGateway.emitNotification(followeeId, toNotificationDto(notification));
     this.notificationsGateway.emitFollow({ followerId: user.userId, followeeId });
 
     return { following: true };
@@ -286,23 +425,23 @@ export class UsersController {
     ]);
 
     const timeline = [
-      ...followers.map((entry: any) => ({
+      ...followers.map((entry: { follower: { username: string }; createdAt: Date }) => ({
         type: "FOLLOW",
         user: entry.follower.username,
         createdAt: entry.createdAt,
       })),
-      ...posts.map((entry: any) => ({
+      ...posts.map((entry: { id: string; createdAt: Date }) => ({
         type: "POST_CREATED",
         postId: entry.id,
         createdAt: entry.createdAt,
       })),
-      ...snippets.map((entry: any) => ({
+      ...snippets.map((entry: { id: string; title: string; createdAt: Date }) => ({
         type: "SNIPPET_CREATED",
         snippetId: entry.id,
         snippetTitle: entry.title,
         createdAt: entry.createdAt,
       })),
-      ...likes.map((entry: any) => ({
+      ...likes.map((entry: { user: { username: string }; post: { id: string }; createdAt: Date }) => ({
         type: "LIKE",
         user: entry.user.username,
         postId: entry.post.id,
@@ -314,12 +453,12 @@ export class UsersController {
 
     return timeline;
   }
-}
 
-function resolveUploadDir() {
-  const fromCwd = path.resolve(process.cwd(), "uploads/avatars");
-  const fromWorkspace = path.resolve(process.cwd(), "../../uploads/avatars");
-
-  if (fs.existsSync(path.resolve(process.cwd(), ".env"))) return fromCwd;
-  return fromWorkspace;
+  private resolveRequestIp(req: Request) {
+    const forwarded = req.headers["x-forwarded-for"];
+    if (typeof forwarded === "string") {
+      return forwarded.split(",")[0]?.trim() || req.ip;
+    }
+    return req.ip;
+  }
 }

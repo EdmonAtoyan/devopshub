@@ -4,6 +4,7 @@ import { ThrottlerModule } from "@nestjs/throttler";
 import { APP_GUARD } from "@nestjs/core";
 import { ThrottlerGuard } from "@nestjs/throttler";
 import * as path from "path";
+import { PrismaModule } from "./prisma.module";
 import { AuthModule } from "./modules/auth/auth.module";
 import { UsersModule } from "./modules/users/users.module";
 import { FeedModule } from "./modules/feed/feed.module";
@@ -14,7 +15,6 @@ import { TagsModule } from "./modules/tags/tags.module";
 import { NotificationsModule } from "./modules/notifications/notifications.module";
 import { SearchModule } from "./modules/search/search.module";
 import { NewsModule } from "./modules/news/news.module";
-import { PrismaService } from "./prisma.service";
 
 @Module({
   imports: [
@@ -25,6 +25,7 @@ import { PrismaService } from "./prisma.service";
         path.resolve(process.cwd(), "../../.env"),
       ],
     }),
+    PrismaModule,
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 120 }]),
     AuthModule,
     UsersModule,
@@ -38,7 +39,6 @@ import { PrismaService } from "./prisma.service";
     NewsModule,
   ],
   providers: [
-    PrismaService,
     {
       provide: APP_GUARD,
       useClass: ThrottlerGuard,

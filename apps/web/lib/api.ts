@@ -38,7 +38,21 @@ function resolveApiBase() {
     return `${origin}/api`;
   }
 
-  return normalizeApiBase(envBase || "http://localhost:4000/api");
+  const upstream = process.env.API_UPSTREAM_URL?.trim();
+  if (upstream) {
+    return normalizeApiBase(upstream);
+  }
+
+  if (envBase) {
+    if (envBase.startsWith("/")) {
+      const apiPort = process.env.API_PORT || "3001";
+      return normalizeApiBase(`http://127.0.0.1:${apiPort}${envBase}`);
+    }
+
+    return normalizeApiBase(envBase);
+  }
+
+  return normalizeApiBase(`http://127.0.0.1:${process.env.API_PORT || "3001"}/api`);
 }
 
 function normalizeApiBase(value: string) {
@@ -67,6 +81,10 @@ function isTunnelHost(hostname: string) {
 const API_BASE = resolveApiBase();
 const API_ORIGIN = API_BASE.replace(/\/api\/?$/, "");
 
+function isFormDataBody(body: BodyInit | null | undefined): body is FormData {
+  return typeof FormData !== "undefined" && body instanceof FormData;
+}
+
 export function apiUrl(path: string) {
   const clean = path.startsWith("/") ? path.slice(1) : path;
   return `${API_BASE}/${clean}`;
@@ -80,7 +98,7 @@ export function assetUrl(path: string) {
 export async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers || undefined);
   const hasBody = init?.body !== undefined && init?.body !== null;
-  if (hasBody && !headers.has("Content-Type")) {
+  if (hasBody && !headers.has("Content-Type") && !isFormDataBody(init?.body)) {
     headers.set("Content-Type", "application/json");
   }
 
@@ -105,5 +123,11 @@ export async function apiRequest<T>(path: string, init?: RequestInit): Promise<T
   }
 
   if (response.status === 204) return undefined as T;
+
+  const contentType = response.headers.get("content-type") || "";
+  if (!contentType.includes("application/json")) {
+    return undefined as T;
+  }
+
   return response.json() as Promise<T>;
 }

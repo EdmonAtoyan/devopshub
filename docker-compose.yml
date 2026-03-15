@@ -1,81 +1,26 @@
 services:
   postgres:
     image: postgres:16
-    restart: always
+    restart: unless-stopped
     environment:
-      POSTGRES_USER: devops
-      POSTGRES_PASSWORD: devops
-      POSTGRES_DB: devopshub
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
+      POSTGRES_USER: ${POSTGRES_USER:-devops}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-devops}
+      POSTGRES_DB: ${POSTGRES_DB:-devopshub}
     ports:
       - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U devops -d devopshub"]
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
       interval: 5s
       timeout: 5s
       retries: 20
-    networks:
-      - devops-network
 
   redis:
     image: redis:7-alpine
-    restart: always
-    networks:
-      - devops-network
-
-  meilisearch:
-    image: getmeili/meilisearch:v1.13
-    restart: always
+    restart: unless-stopped
     ports:
-      - "7700:7700"
-    environment:
-      MEILI_NO_ANALYTICS: "true"
-    volumes:
-      - meili_data:/meili_data
-    networks:
-      - devops-network
-
-  backend:
-    container_name: devopshub-backend
-    build:
-      context: .
-      dockerfile: Dockerfile
-    restart: always
-    ports:
-      - "3002:3000"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_started
-      meilisearch:
-        condition: service_started
-    env_file:
-      - .env
-    environment:
-      DATABASE_URL: postgresql://devops:devops@postgres:5432/devopshub
-      API_UPSTREAM_URL: http://127.0.0.1:3001
-    command: >
-      sh -c "
-      until npm --workspace @devops-community/api exec -- prisma migrate deploy --schema prisma/schema.prisma; do
-        echo 'Waiting for migration deploy...';
-        sleep 2;
-      done;
-      until npm --workspace @devops-community/api exec -- prisma db push --schema prisma/schema.prisma --skip-generate; do
-        echo 'Waiting for schema sync...';
-        sleep 2;
-      done;
-      npm --workspace @devops-community/api run start &
-      npm --workspace @devops-community/web run start
-      "
-    networks:
-      - devops-network
+      - "6379:6379"
 
 volumes:
   postgres_data:
-  meili_data:
-
-networks:
-  devops-network:
-    driver: bridge

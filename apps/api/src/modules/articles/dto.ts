@@ -1,4 +1,4 @@
-import { IsArray, IsOptional, IsString, MaxLength } from "class-validator";
+import { ArrayMaxSize, IsArray, IsOptional, IsString, MaxLength } from "class-validator";
 
 export class CreateArticleDto {
   @IsString()
@@ -14,7 +14,9 @@ export class CreateArticleDto {
 
   @IsOptional()
   @IsArray()
+  @ArrayMaxSize(10)
   @IsString({ each: true })
+  @MaxLength(32, { each: true })
   tags?: string[];
 }
 
@@ -34,7 +36,9 @@ export class UpdateArticleDto {
 
   @IsOptional()
   @IsArray()
+  @ArrayMaxSize(10)
   @IsString({ each: true })
+  @MaxLength(32, { each: true })
   tags?: string[];
 }
 

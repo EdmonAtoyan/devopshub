@@ -10,6 +10,8 @@ import {
   Query,
   UseGuards,
 } from "@nestjs/common";
+import { clampInt } from "../../common/query";
+import { normalizeTagNames } from "../../common/tags";
 import { CurrentUser } from "../../common/current-user.decorator";
 import { JwtAuthGuard } from "../../common/jwt-auth.guard";
 import { PrismaService } from "../../prisma.service";
@@ -21,11 +23,11 @@ export class SnippetsController {
 
   @Get()
   list(@Query("language") language?: string, @Query("limit") limit = "30") {
-    const safeLimit = this.clamp(limit, 1, 60, 30);
+    const safeLimit = clampInt(limit, 1, 60, 30);
     return this.prisma.snippet.findMany({
       where: language ? { language } : undefined,
       include: {
-        author: { select: { id: true, username: true, name: true } },
+        author: { select: { id: true, username: true, verified: true, name: true } },
         tags: { select: { tag: { select: { name: true } } } },
       },
       orderBy: { createdAt: "desc" },
@@ -50,7 +52,7 @@ export class SnippetsController {
         },
       },
       include: {
-        author: { select: { id: true, username: true, name: true } },
+        author: { select: { id: true, username: true, verified: true, name: true } },
         tags: { select: { tag: { select: { name: true } } } },
       },
     });
@@ -102,19 +104,12 @@ export class SnippetsController {
   }
 
   private async resolveTags(rawTags: string[]) {
-    const clean = rawTags.map((tag) => tag.trim().toLowerCase()).filter(Boolean);
-    const unique = Array.from(new Set(clean));
+    const unique = normalizeTagNames(rawTags);
 
     const tags = await Promise.all(
       unique.map((name) => this.prisma.tag.upsert({ where: { name }, update: {}, create: { name } })),
     );
 
     return tags.map((tag) => tag.id);
-  }
-
-  private clamp(value: string, min: number, max: number, fallback: number) {
-    const parsed = Number.parseInt(value, 10);
-    if (Number.isNaN(parsed)) return fallback;
-    return Math.max(min, Math.min(max, parsed));
   }
 }

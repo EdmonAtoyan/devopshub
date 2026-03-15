@@ -1,4 +1,5 @@
 import { Controller, Get, Param, Patch, UseGuards } from "@nestjs/common";
+import { toNotificationDto } from "../../common/notifications";
 import { CurrentUser } from "../../common/current-user.decorator";
 import { JwtAuthGuard } from "../../common/jwt-auth.guard";
 import { PrismaService } from "../../prisma.service";
@@ -10,23 +11,20 @@ export class NotificationsController {
   @UseGuards(JwtAuthGuard)
   @Get()
   async myNotifications(@CurrentUser() user: { userId: string }) {
-    const items = await this.prisma.notification.findMany({
-      where: { userId: user.userId },
-      orderBy: { createdAt: "desc" },
-      take: 50,
-    });
+    const [items, unreadCount] = await Promise.all([
+      this.prisma.notification.findMany({
+        where: { userId: user.userId },
+        orderBy: { createdAt: "desc" },
+        take: 50,
+      }),
+      this.prisma.notification.count({
+        where: { userId: user.userId, read: false },
+      }),
+    ]);
 
-    const unreadCount = items.filter((item: any) => !item.read).length;
     return {
       unreadCount,
-      notifications: items.map((item: any) => ({
-        id: item.id,
-        userId: item.userId,
-        type: item.type === "NEW_FOLLOWER" ? "FOLLOW" : item.type,
-        message: item.message,
-        createdAt: item.createdAt,
-        isRead: item.read,
-      })),
+      notifications: items.map(toNotificationDto),
     };
   }
 

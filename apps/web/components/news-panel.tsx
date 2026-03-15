@@ -32,13 +32,15 @@ export function NewsPanel() {
   }, []);
 
   return (
-    <section className="mt-4 border-t border-line pt-4">
-      <h3 className="text-sm font-semibold text-slate-200">DevOps News</h3>
-      {error ? <p className="mt-2 text-xs text-slate-400">{error}</p> : null}
-      <div className="mt-3 max-h-[520px] space-y-3 overflow-y-auto pr-1">
+    <section className="space-y-4">
+      <div>
+        <h3 className="section-heading text-base">DevOps News</h3>
+      </div>
+      {error ? <p className="text-xs text-slate-400">{error}</p> : null}
+      <div className="max-h-[32.5rem] space-y-3 overflow-y-auto pr-1">
         {items.map((item) => (
-          <article key={`${item.link}-${item.publishedAt || ""}`} className="rounded-lg border border-line p-3">
-            <a href={item.link} target="_blank" rel="noreferrer" className="text-sm font-medium text-slate-100 hover:text-accent">
+          <article key={`${item.link}-${item.publishedAt || ""}`} className="subtle-panel p-3">
+            <a href={item.link} target="_blank" rel="noreferrer" className="text-sm font-medium leading-6 text-slate-100 hover:text-accent">
               {item.title}
             </a>
             <p className="mt-1 text-xs text-slate-400">{item.description || "No summary available."}</p>

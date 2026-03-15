@@ -1,7 +1,7 @@
-type SocketLike = {
-  on: (event: string, cb: (...args: any[]) => void) => void;
-  off: (event: string, cb?: (...args: any[]) => void) => void;
-  emit: (event: string, payload?: any) => void;
+export type SocketLike = {
+  on: <T = unknown>(event: string, cb: (payload: T) => void) => void;
+  off: <T = unknown>(event: string, cb?: (payload: T) => void) => void;
+  emit: <T = unknown>(event: string, payload?: T) => void;
   disconnect: () => void;
 };
 

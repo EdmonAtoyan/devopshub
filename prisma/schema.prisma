@@ -1,5 +1,6 @@
 generator client {
   provider = "prisma-client-js"
+  output   = "../node_modules/@prisma/client/.prisma/client"
 }
 
 datasource db {
@@ -19,6 +20,8 @@ model User {
   email          String   @unique
   username       String   @unique
   passwordHash   String
+  verified       Boolean  @default(false)
+  emailVerifiedAt DateTime?
   name           String
   bio            String?
   avatarUrl      String?
@@ -38,6 +41,7 @@ model User {
   articleComments ArticleComment[]
   likes          PostLike[]
   bookmarks      PostBookmark[]
+  postViews      PostView[]
   articleLikes   ArticleLike[]
   articleBookmarks ArticleBookmark[]
   following      Follow[] @relation("following")
@@ -45,6 +49,9 @@ model User {
   notifications  Notification[]
   tagFollows     TagFollow[]
   passwordResetTokens PasswordResetToken[]
+  emailVerificationTokens EmailVerificationToken[]
+
+  @@index([reputation, createdAt])
 }
 
 model Post {
@@ -55,15 +62,27 @@ model Post {
   imageUrl    String?
   linkUrl     String?
   likeCount   Int         @default(0)
+  viewCount   Int         @default(0)
+  repostCount Int         @default(0)
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
 
   authorId    String
+  originalPostId String?
   author      User        @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  originalPost Post?      @relation("PostReposts", fields: [originalPostId], references: [id], onDelete: Cascade)
+  reposts     Post[]      @relation("PostReposts")
   comments    Comment[]
   likes       PostLike[]
   bookmarks   PostBookmark[]
+  views       PostView[]
   tags        PostTag[]
+
+  @@index([authorId, createdAt])
+  @@index([createdAt])
+  @@index([likeCount, createdAt])
+  @@index([originalPostId, createdAt])
+  @@unique([authorId, originalPostId])
 }
 
 model Article {
@@ -82,6 +101,10 @@ model Article {
   likes       ArticleLike[]
   bookmarks   ArticleBookmark[]
   tags        ArticleTag[]
+
+  @@index([authorId, createdAt])
+  @@index([createdAt])
+  @@index([likeCount, createdAt])
 }
 
 model Snippet {
@@ -97,6 +120,9 @@ model Snippet {
   authorId    String
   author      User        @relation(fields: [authorId], references: [id], onDelete: Cascade)
   tags        SnippetTag[]
+
+  @@index([authorId, createdAt])
+  @@index([language, createdAt])
 }
 
 model Tool {
@@ -110,6 +136,8 @@ model Tool {
   popularityScore  Int      @default(0)
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
+
+  @@index([category, popularityScore])
 }
 
 model Tag {
@@ -122,6 +150,8 @@ model Tag {
   articles      ArticleTag[]
   snippets      SnippetTag[]
   followers     TagFollow[]
+
+  @@index([followerCount, createdAt])
 }
 
 model PostTag {
@@ -163,6 +193,9 @@ model Comment {
   authorId  String
   post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
   author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([postId, createdAt])
+  @@index([authorId, createdAt])
 }
 
 model ArticleComment {
@@ -174,6 +207,9 @@ model ArticleComment {
   authorId  String
   article   Article  @relation(fields: [articleId], references: [id], onDelete: Cascade)
   author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([articleId, createdAt])
+  @@index([authorId, createdAt])
 }
 
 model PostLike {
@@ -196,6 +232,24 @@ model PostBookmark {
   post      Post @relation(fields: [postId], references: [id], onDelete: Cascade)
 
   @@id([userId, postId])
+  @@index([userId, createdAt])
+}
+
+model PostView {
+  id           String   @id @default(cuid())
+  postId       String
+  userId       String?
+  viewerHash   String?
+  lastViewedAt DateTime @default(now())
+  createdAt    DateTime @default(now())
+
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, userId])
+  @@unique([postId, viewerHash])
+  @@index([postId, lastViewedAt])
+  @@index([userId, lastViewedAt])
 }
 
 model ArticleLike {
@@ -229,6 +283,7 @@ model Follow {
   followee   User @relation("followers", fields: [followeeId], references: [id], onDelete: Cascade)
 
   @@id([followerId, followeeId])
+  @@index([followeeId, createdAt])
 }
 
 model TagFollow {
@@ -240,6 +295,7 @@ model TagFollow {
   tag       Tag  @relation(fields: [tagId], references: [id], onDelete: Cascade)
 
   @@id([userId, tagId])
+  @@index([tagId, createdAt])
 }
 
 model Notification {
@@ -251,6 +307,9 @@ model Notification {
 
   userId     String
   user       User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([userId, read, createdAt])
 }
 
 model PasswordResetToken {
@@ -261,4 +320,18 @@ model PasswordResetToken {
   createdAt DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+}
+
+model EmailVerificationToken {
+  id        String   @id @default(uuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
 }

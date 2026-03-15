@@ -1,4 +1,4 @@
-import { IsArray, IsOptional, IsString, MaxLength } from "class-validator";
+import { ArrayMaxSize, IsArray, IsOptional, IsString, MaxLength } from "class-validator";
 
 export class CreateSnippetDto {
   @IsString()
@@ -17,7 +17,9 @@ export class CreateSnippetDto {
 
   @IsOptional()
   @IsArray()
+  @ArrayMaxSize(10)
   @IsString({ each: true })
+  @MaxLength(32, { each: true })
   tags?: string[];
 }
 
@@ -41,6 +43,8 @@ export class UpdateSnippetDto {
 
   @IsOptional()
   @IsArray()
+  @ArrayMaxSize(10)
   @IsString({ each: true })
+  @MaxLength(32, { each: true })
   tags?: string[];
 }

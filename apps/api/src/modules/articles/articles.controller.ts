@@ -11,6 +11,9 @@ import {
   Post,
   UseGuards,
 } from "@nestjs/common";
+import { toNotificationDto } from "../../common/notifications";
+import { clampInt } from "../../common/query";
+import { normalizeTagNames } from "../../common/tags";
 import { CurrentUser } from "../../common/current-user.decorator";
 import { JwtAuthGuard } from "../../common/jwt-auth.guard";
 import { NotificationsGateway } from "../notifications/notifications.gateway";
@@ -34,18 +37,18 @@ export class ArticlesController {
     @Query("limit") limit = "20",
     @Query("commentLimit") commentLimit = "3",
   ) {
-    const safeLimit = this.clamp(limit, 1, 40, 20);
-    const safeCommentLimit = this.clamp(commentLimit, 0, 10, 3);
+    const safeLimit = clampInt(limit, 1, 40, 20);
+    const safeCommentLimit = clampInt(commentLimit, 0, 10, 3);
 
     return this.prisma.article.findMany({
       orderBy: { createdAt: "desc" },
       include: {
-        author: { select: { id: true, username: true, name: true } },
+        author: { select: { id: true, username: true, verified: true, name: true } },
         tags: { select: { tag: { select: { name: true } } } },
         comments: {
           orderBy: { createdAt: "desc" },
           take: safeCommentLimit,
-          include: { author: { select: { id: true, username: true, name: true } } },
+          include: { author: { select: { id: true, username: true, verified: true, name: true } } },
         },
         _count: { select: { likes: true, comments: true, bookmarks: true } },
       },
@@ -58,9 +61,9 @@ export class ArticlesController {
     return this.prisma.article.findUnique({
       where: { slug },
       include: {
-        author: { select: { id: true, username: true, name: true } },
+        author: { select: { id: true, username: true, verified: true, name: true } },
         tags: { include: { tag: true } },
-        comments: { include: { author: { select: { username: true, name: true } } }, orderBy: { createdAt: "desc" } },
+        comments: { include: { author: { select: { id: true, username: true, verified: true, name: true } } }, orderBy: { createdAt: "desc" } },
       },
     });
   }
@@ -83,7 +86,7 @@ export class ArticlesController {
         },
       },
       include: {
-        author: { select: { id: true, username: true, name: true } },
+        author: { select: { id: true, username: true, verified: true, name: true } },
         tags: { select: { tag: { select: { name: true } } } },
       },
     });
@@ -190,7 +193,7 @@ export class ArticlesController {
 
     const comment = await this.prisma.articleComment.create({
       data: { articleId: id, authorId: user.userId, body: dto.body },
-      include: { author: { select: { username: true, name: true } } },
+      include: { author: { select: { id: true, username: true, verified: true, name: true } } },
     });
 
     if (article.authorId !== user.userId) {
@@ -201,14 +204,7 @@ export class ArticlesController {
           message: `${comment.author.username} commented on your article`,
         },
       });
-      this.notificationsGateway.emitNotification(article.authorId, {
-        id: notification.id,
-        userId: notification.userId,
-        type: "COMMENT",
-        message: notification.message,
-        createdAt: notification.createdAt,
-        isRead: notification.read,
-      });
+      this.notificationsGateway.emitNotification(article.authorId, toNotificationDto(notification));
     }
 
     return comment;
@@ -225,7 +221,7 @@ export class ArticlesController {
     return this.prisma.articleComment.update({
       where: { id: commentId },
       data: { body: dto.body },
-      include: { author: { select: { id: true, username: true, name: true } } },
+      include: { author: { select: { id: true, username: true, verified: true, name: true } } },
     });
   }
 
@@ -277,19 +273,12 @@ export class ArticlesController {
   }
 
   private async resolveTags(rawTags: string[]) {
-    const clean = rawTags.map((tag) => tag.trim().toLowerCase()).filter(Boolean);
-    const unique = Array.from(new Set(clean));
+    const unique = normalizeTagNames(rawTags);
 
     const tags = await Promise.all(
       unique.map((name) => this.prisma.tag.upsert({ where: { name }, update: {}, create: { name } })),
     );
 
     return tags.map((tag) => tag.id);
-  }
-
-  private clamp(value: string, min: number, max: number, fallback: number) {
-    const parsed = Number.parseInt(value, 10);
-    if (Number.isNaN(parsed)) return fallback;
-    return Math.max(min, Math.min(max, parsed));
   }
 }

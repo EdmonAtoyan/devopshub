@@ -1,8 +1,10 @@
-import { IsArray, IsOptional, IsString, MaxLength } from "class-validator";
+import { ArrayMaxSize, IsArray, IsOptional, IsString, MaxLength } from "class-validator";
+
+const POST_BODY_MAX_LENGTH = 10_000;
 
 export class CreatePostDto {
   @IsString()
-  @MaxLength(280)
+  @MaxLength(POST_BODY_MAX_LENGTH)
   body!: string;
 
   @IsOptional()
@@ -19,14 +21,16 @@ export class CreatePostDto {
 
   @IsOptional()
   @IsArray()
+  @ArrayMaxSize(10)
   @IsString({ each: true })
+  @MaxLength(32, { each: true })
   tags?: string[];
 }
 
 export class UpdatePostDto {
   @IsOptional()
   @IsString()
-  @MaxLength(280)
+  @MaxLength(POST_BODY_MAX_LENGTH)
   body?: string;
 
   @IsOptional()
@@ -43,7 +47,9 @@ export class UpdatePostDto {
 
   @IsOptional()
   @IsArray()
+  @ArrayMaxSize(10)
   @IsString({ each: true })
+  @MaxLength(32, { each: true })
   tags?: string[];
 }
 

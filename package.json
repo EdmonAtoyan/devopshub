@@ -2,22 +2,27 @@
   "name": "devops-community-platform",
   "private": true,
   "version": "0.1.0",
-  "description": "Cloud-native DevOps social platform monorepo",
+  "description": "Standalone DevOps community platform",
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "workspaces": [
     "apps/*"
   ],
   "scripts": {
     "dev:web": "npm --workspace @devops-community/web run dev",
     "dev:api": "npm --workspace @devops-community/api run start:dev",
-    "build": "npm run build:web && npm run build:api",
+    "build": "npm run db:generate && npm run build:web && npm run build:api",
     "build:web": "npm --workspace @devops-community/web run build",
     "build:api": "npm --workspace @devops-community/api run build",
+    "start": "node scripts/start-standalone.mjs",
     "lint": "npm run lint:web && npm run lint:api",
     "lint:web": "npm --workspace @devops-community/web run lint",
     "lint:api": "npm --workspace @devops-community/api run lint",
-    "db:generate": "npm --workspace @devops-community/api exec -- prisma generate --schema prisma/schema.prisma",
-    "db:migrate": "npm --workspace @devops-community/api exec -- prisma migrate dev --schema prisma/schema.prisma",
-    "db:studio": "npm --workspace @devops-community/api exec -- prisma studio --schema prisma/schema.prisma"
+    "db:generate": "npm --workspace @devops-community/api exec -- prisma generate --schema ../../prisma/schema.prisma",
+    "db:migrate:deploy": "npm --workspace @devops-community/api exec -- prisma migrate deploy --schema ../../prisma/schema.prisma",
+    "db:migrate": "npm --workspace @devops-community/api exec -- prisma migrate dev --schema ../../prisma/schema.prisma",
+    "db:studio": "npm --workspace @devops-community/api exec -- prisma studio --schema ../../prisma/schema.prisma"
   },
   "devDependencies": {
     "@typescript-eslint/eslint-plugin": "^8.56.1",

@@ -2,39 +2,36 @@ import { ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import * as cookieParser from "cookie-parser";
 import * as express from "express";
-import * as fs from "node:fs";
-import * as path from "node:path";
 import { AppModule } from "./app.module";
+import { corsOriginValidator } from "./common/cors";
+import { ensureUploadRootExists, resolveUploadRoot } from "./common/uploads";
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  const httpApp = app.getHttpAdapter().getInstance();
   app.setGlobalPrefix("api");
+  app.enableShutdownHooks();
+  httpApp.disable("x-powered-by");
   app.use(cookieParser());
-  app
-    .getHttpAdapter()
-    .getInstance()
-    .get("/api/health", (_req: express.Request, res: express.Response) => {
-      res.json({
-        service: "community-api",
-        status: "ok",
-        timestamp: new Date().toISOString(),
-      });
+  app.use((_req: express.Request, res: express.Response, next: express.NextFunction) => {
+    res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("X-Frame-Options", "DENY");
+    next();
+  });
+  httpApp.get("/api/health", (_req: express.Request, res: express.Response) => {
+    res.json({
+      service: "community-api",
+      status: "ok",
+      timestamp: new Date().toISOString(),
     });
+  });
   const uploadDir = resolveUploadRoot();
-  fs.mkdirSync(uploadDir, { recursive: true });
+  ensureUploadRootExists();
   app.use("/uploads", express.static(uploadDir));
-  const allowedOrigins = (process.env.CORS_ORIGIN || "")
-    .split(",")
-    .map((origin) => origin.trim())
-    .filter(Boolean);
 
   app.enableCors({
-    origin: (origin, callback) => {
-      if (!origin) return callback(null, true);
-      if (allowedOrigins.length === 0) return callback(null, true);
-      if (isAllowedOrigin(origin, allowedOrigins)) return callback(null, true);
-      return callback(new Error("Origin not allowed by CORS"), false);
-    },
+    origin: corsOriginValidator,
     credentials: true,
   });
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
@@ -43,44 +40,3 @@ async function bootstrap() {
 }
 
 bootstrap();
-
-function resolveUploadRoot() {
-  const fromCwd = path.resolve(process.cwd(), "uploads");
-  const fromWorkspace = path.resolve(process.cwd(), "../../uploads");
-  if (fs.existsSync(path.resolve(process.cwd(), ".env"))) return fromCwd;
-  return fromWorkspace;
-}
-
-function isAllowedOrigin(origin: string, allowList: string[]) {
-  if (allowList.includes(origin)) return true;
-
-  for (const rule of allowList) {
-    if (!rule.includes("*")) continue;
-    const pattern = new RegExp(`^${rule.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*")}$`);
-    if (pattern.test(origin)) return true;
-  }
-
-  if (process.env.ALLOW_NGROK_ORIGINS?.toLowerCase() !== "false") {
-    try {
-      const parsed = new URL(origin);
-      if (parsed.hostname === "localhost") return true;
-      if (parsed.hostname === "127.0.0.1") return true;
-      if (parsed.hostname === "0.0.0.0") return true;
-
-      const siteUrl = process.env.NEXT_PUBLIC_SITE_URL;
-      if (siteUrl) {
-        const site = new URL(siteUrl);
-        if (site.origin === origin) return true;
-      }
-
-      if (parsed.hostname.endsWith(".ngrok-free.app")) return true;
-      if (parsed.hostname.endsWith(".ngrok-free.dev")) return true;
-      if (parsed.hostname.endsWith(".ngrok.io")) return true;
-      if (parsed.hostname.endsWith(".ngrok.app")) return true;
-    } catch {
-      return false;
-    }
-  }
-
-  return false;
-}

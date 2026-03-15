@@ -1,18 +1,21 @@
 "use client";
 
+import { CaptchaField, captchaEnabled } from "@/components/captcha-field";
 import { Shell } from "@/components/shell";
-import { SaveIcon, TrashIcon, UploadIcon, UserCogIcon } from "@/components/icons";
-import { apiRequest, apiUrl, assetUrl } from "@/lib/api";
+import { SaveIcon, SettingsIcon, TrashIcon, UploadIcon } from "@/components/icons";
+import { apiRequest, assetUrl } from "@/lib/api";
 import { useRouter } from "next/navigation";
 import { DragEvent, FormEvent, useEffect, useId, useState } from "react";
 
 type ProfileSettings = {
   id: string;
   username: string;
+  verified?: boolean;
   email: string;
   name: string;
   bio?: string;
   avatarUrl?: string;
+  requiresEmailVerification?: boolean;
 };
 
 export default function SettingsPage() {
@@ -24,6 +27,11 @@ export default function SettingsPage() {
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [verificationMessage, setVerificationMessage] = useState("");
+  const [verificationError, setVerificationError] = useState("");
+  const [verificationOpen, setVerificationOpen] = useState(false);
+  const [verificationLoading, setVerificationLoading] = useState(false);
+  const [captchaToken, setCaptchaToken] = useState("");
   const [confirmDelete, setConfirmDelete] = useState("");
   const [deleting, setDeleting] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
@@ -55,6 +63,29 @@ export default function SettingsPage() {
     }
   };
 
+  const verifyAccount = async () => {
+    setVerificationLoading(true);
+    try {
+      const result = await apiRequest<{ verified: boolean }>("users/me/verification", {
+        method: "POST",
+        body: JSON.stringify({ captchaToken }),
+      });
+      if (result.verified) {
+        setProfile((current) => (current ? { ...current, verified: true } : current));
+        setVerificationMessage("Account verified. The badge is now attached to your username.");
+        setVerificationError("");
+        setVerificationOpen(false);
+        setCaptchaToken("");
+        router.refresh();
+      }
+    } catch (err) {
+      setVerificationMessage("");
+      setVerificationError(err instanceof Error ? err.message : "Verification failed.");
+    } finally {
+      setVerificationLoading(false);
+    }
+  };
+
   useEffect(() => {
     void load();
   }, []);
@@ -66,6 +97,11 @@ export default function SettingsPage() {
         method: "PATCH",
         body: JSON.stringify({ username, email, bio }),
       });
+      if (updated.requiresEmailVerification) {
+        router.push(`/verify-email?email=${encodeURIComponent(updated.email)}&sent=1`);
+        router.refresh();
+        return;
+      }
       setProfile(updated);
       setMessage("Profile updated.");
       setError("");
@@ -87,14 +123,10 @@ export default function SettingsPage() {
 
     setUploadingAvatar(true);
     try {
-      const response = await fetch(apiUrl("users/me/avatar"), {
+      const updated = await apiRequest<ProfileSettings>("users/me/avatar", {
         method: "POST",
         body: form,
-        credentials: "include",
       });
-      if (!response.ok) throw new Error("Avatar upload failed.");
-
-      const updated = (await response.json()) as ProfileSettings;
       setProfile(updated);
       setAvatarFile(null);
       setMessage("Profile picture updated.");
@@ -147,19 +179,23 @@ export default function SettingsPage() {
 
   return (
     <Shell>
-      <header className="card p-4 page-enter">
-        <h2 className="flex items-center gap-2 text-2xl font-semibold">
-          <UserCogIcon size={22} />
-          Profile Settings
-        </h2>
-        <p className="mt-1 text-base text-slate-400">Manage your account information and profile visibility.</p>
+      <header className="page-header page-enter">
+        <div className="page-header-copy">
+          <h1 className="flex items-center gap-2 text-3xl font-semibold tracking-tight text-slate-100">
+            <SettingsIcon size={22} />
+            Profile Settings
+          </h1>
+          <p className="page-lead">
+            Account controls live here so profile editing, avatar management, and destructive actions stay separate from the main content flows.
+          </p>
+        </div>
       </header>
 
-      <section className="grid gap-4 lg:grid-cols-[300px_minmax(0,1fr)] page-enter">
-        <aside className="card space-y-4 p-4">
-          <div>
-            <h3 className="text-base font-semibold">Profile Picture</h3>
-            <div className="mt-3 h-44 w-44 overflow-hidden rounded-xl border border-line">
+      <section className="grid gap-6 lg:grid-cols-[20rem_minmax(0,1fr)] page-enter">
+        <aside className="page-section h-fit space-y-5 lg:sticky lg:top-4">
+          <div className="text-center lg:text-left">
+            <h3 className="text-xl font-semibold tracking-tight text-slate-100">Profile picture</h3>
+            <div className="mx-auto mt-4 h-36 w-36 overflow-hidden rounded-2xl border border-line sm:h-44 sm:w-44 lg:mx-0">
               {avatarPreview || profile?.avatarUrl ? (
                 <img
                   src={avatarPreview || assetUrl(profile?.avatarUrl || "")}
@@ -183,9 +219,9 @@ export default function SettingsPage() {
 
             <label
               htmlFor={avatarInputId}
-              className={`group flex cursor-pointer items-center justify-between rounded-lg border border-dashed bg-bg p-3 transition-all duration-200 ${
+              className={`group flex cursor-pointer flex-col items-start gap-3 rounded-2xl border border-dashed bg-bg p-4 transition-all duration-200 sm:flex-row sm:items-center sm:justify-between ${
                 isDragOver
-                  ? "border-accent bg-accent/10 shadow-[0_0_0_1px_rgba(58,184,83,0.25)]"
+                  ? "border-accent bg-accent/10"
                   : "border-line hover:border-accent hover:bg-accent/5"
               }`}
               onDragOver={(event) => {
@@ -201,15 +237,15 @@ export default function SettingsPage() {
                   {avatarFile ? avatarFile.name : "PNG, JPG, GIF up to 2MB"}
                 </p>
               </div>
-              <span className="rounded-md border border-line bg-panel px-2 py-1 text-xs text-slate-300 transition-colors group-hover:border-accent group-hover:text-accent">
+              <span className="rounded-xl border border-line bg-panel px-3 py-2 text-xs text-slate-300 transition-colors group-hover:border-accent group-hover:text-accent">
                 Browse
               </span>
             </label>
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
               <button
                 disabled={!avatarFile || uploadingAvatar}
-                className="btn-positive inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60"
+                className="btn-primary w-full sm:w-auto"
               >
                 <UploadIcon size={16} />
                 {uploadingAvatar ? "Uploading..." : "Upload Avatar"}
@@ -217,7 +253,7 @@ export default function SettingsPage() {
               {avatarFile ? (
                 <button
                   type="button"
-                  className="rounded-lg border border-line px-3 py-2 text-sm text-slate-300 hover:bg-slate-800"
+                  className="btn-secondary w-full sm:w-auto"
                   onClick={() => setAvatarFile(null)}
                 >
                   Clear
@@ -231,41 +267,125 @@ export default function SettingsPage() {
           </form>
         </aside>
 
-        <div className="space-y-4">
-          <form className="card space-y-3 p-4" onSubmit={saveProfile}>
-            <h3 className="text-base font-semibold">Account</h3>
-            <label className="block text-sm text-slate-300">
+        <div className="page-stack">
+          <form className="page-section space-y-4" onSubmit={saveProfile}>
+            <div>
+              <h3 className="section-heading">Account details</h3>
+              <p className="section-copy mt-1">Core identity fields appear together so the edit flow reads naturally from top to bottom.</p>
+            </div>
+            <label className="field-label">
               Username
               <input className="input mt-1" value={username} onChange={(event) => setUsername(event.target.value)} />
             </label>
-            <label className="block text-sm text-slate-300">
+            <label className="field-label">
               Email
               <input className="input mt-1" value={email} onChange={(event) => setEmail(event.target.value)} type="email" />
             </label>
-            <label className="block text-sm text-slate-300">
+            <label className="field-label">
               Bio
-              <textarea className="input mt-1 min-h-28" value={bio} onChange={(event) => setBio(event.target.value)} />
+              <textarea className="input mt-1 min-h-32" value={bio} onChange={(event) => setBio(event.target.value)} />
             </label>
 
-            <button className="btn-positive-solid inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold">
-              <SaveIcon size={16} />
-              Save changes
-            </button>
-            {message ? <p className="text-sm text-success-soft">{message}</p> : null}
-            {error ? <p className="text-sm text-danger-soft">{error}</p> : null}
+            <div className="form-actions">
+              <div>
+                {message ? <p className="text-sm text-success-soft">{message}</p> : null}
+                {error ? <p className="text-sm text-danger-soft">{error}</p> : null}
+              </div>
+              <button className="btn-primary w-full sm:w-auto">
+                <SaveIcon size={16} />
+                Save changes
+              </button>
+            </div>
           </form>
 
-          <section className="card space-y-3 border-rose-800/50 p-4">
-            <h3 className="text-base font-semibold text-danger-soft">Danger Zone</h3>
+          <section className="page-section space-y-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h3 className="section-heading">Verification</h3>
+                <p className="section-copy mt-1">
+                  Verify your account to add a verification mark next to your username across posts, comments, and your profile header.
+                </p>
+              </div>
+              {profile?.verified ? (
+                <span className="inline-flex items-center rounded-full border border-sky-500/30 bg-sky-500/10 px-3 py-1.5 text-sm font-medium text-sky-300">Verified</span>
+              ) : null}
+            </div>
+
+            {profile?.verified ? (
+              <div className="subtle-panel text-sm text-slate-300">This account is verified.</div>
+            ) : (
+              <div className="space-y-4">
+                <div className="subtle-panel space-y-2">
+                  <p className="text-sm text-slate-300">
+                    Verification requires a successful CAPTCHA challenge before the backend will persist your badge.
+                  </p>
+                  <p className="text-xs leading-6 text-slate-500">
+                    Cloudflare Turnstile is used here to make automated verification materially harder.
+                  </p>
+                </div>
+
+                {!verificationOpen ? (
+                  <button
+                    type="button"
+                    className="btn-secondary w-full sm:w-auto"
+                    onClick={() => {
+                      setVerificationOpen(true);
+                      setVerificationMessage("");
+                      setVerificationError("");
+                    }}
+                  >
+                    Start Verification
+                  </button>
+                ) : (
+                  <div className="space-y-4">
+                    <CaptchaField onTokenChange={setCaptchaToken} />
+                    <div className="action-cluster">
+                      <button
+                        type="button"
+                        className="btn-primary w-full sm:w-auto"
+                        disabled={verificationLoading || (captchaEnabled && !captchaToken)}
+                        onClick={() => void verifyAccount()}
+                      >
+                        {verificationLoading ? "Verifying..." : "Verify account"}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-secondary w-full sm:w-auto"
+                        onClick={() => {
+                          setVerificationOpen(false);
+                          setCaptchaToken("");
+                          setVerificationMessage("");
+                          setVerificationError("");
+                        }}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                    {captchaEnabled ? (
+                      <p className="text-xs text-slate-500">Complete the challenge first, then confirm verification.</p>
+                    ) : null}
+                  </div>
+                )}
+
+                {verificationMessage ? <p className="text-sm text-success-soft">{verificationMessage}</p> : null}
+                {verificationError ? <p className="text-sm text-danger-soft">{verificationError}</p> : null}
+              </div>
+            )}
+          </section>
+
+          <section className="page-section space-y-4 border-rose-800/50">
+            <div>
+              <h3 className="text-xl font-semibold tracking-tight text-danger-soft">Delete account</h3>
+            </div>
             <p className="text-sm text-slate-400">Deleting your account removes your profile and related content permanently.</p>
-            <label className="block text-sm text-slate-300">
+            <label className="field-label">
               Type <span className="font-semibold">DELETE</span> to confirm
               <input className="input mt-1" value={confirmDelete} onChange={(event) => setConfirmDelete(event.target.value)} />
             </label>
             <button
               type="button"
               disabled={deleting}
-              className="btn-danger inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold disabled:opacity-60"
+              className="btn-danger w-full sm:w-auto"
               onClick={() => void deleteAccount()}
             >
               <TrashIcon size={16} />

@@ -2,47 +2,55 @@
 
 import { useEffect, useState } from "react";
 
-type ThemePreference = "system" | "light" | "dark";
+type ThemePreference = "dark" | "light";
+const THEME_STORAGE_KEY = "theme";
 
 function applyTheme(theme: ThemePreference) {
-  const root = document.documentElement;
-  if (theme === "system") {
-    root.removeAttribute("data-theme");
-    return;
+  document.documentElement.setAttribute("data-theme", theme);
+}
+
+function resolveThemePreference(): ThemePreference {
+  if (typeof document !== "undefined") {
+    const active = document.documentElement.getAttribute("data-theme");
+    if (active === "light" || active === "dark") {
+      return active;
+    }
   }
-  root.setAttribute("data-theme", theme);
+
+  if (typeof window !== "undefined") {
+    try {
+      return window.localStorage.getItem(THEME_STORAGE_KEY) === "light" ? "light" : "dark";
+    } catch {
+      return "dark";
+    }
+  }
+
+  return "dark";
 }
 
 export function ThemeToggle({ compact = false }: { compact?: boolean }) {
-  const [theme, setTheme] = useState<ThemePreference>("system");
+  const [theme, setTheme] = useState<ThemePreference>(() => resolveThemePreference());
 
   useEffect(() => {
-    const saved = localStorage.getItem("theme") as ThemePreference | null;
-    const next = saved === "light" || saved === "dark" || saved === "system" ? saved : "system";
+    const next = resolveThemePreference();
     setTheme(next);
     applyTheme(next);
   }, []);
 
   const onChange = (next: ThemePreference) => {
     setTheme(next);
-    localStorage.setItem("theme", next);
+    localStorage.setItem(THEME_STORAGE_KEY, next);
     applyTheme(next);
   };
 
   return (
-    <div className={`${compact ? "flex items-center gap-2 text-xs" : "mt-4 flex items-center gap-2 text-xs"}`}>
-      <span className="text-slate-400">Theme</span>
+    <div className={compact ? "flex flex-wrap items-center gap-2 text-xs" : "mt-4 flex flex-wrap items-center gap-2 text-xs"}>
+      <span className="mr-1 text-slate-400">Theme</span>
       <button
         type="button"
-        className="rounded-md border border-line px-2 py-1"
-        onClick={() => onChange("light")}
-        aria-pressed={theme === "light"}
-      >
-        Light
-      </button>
-      <button
-        type="button"
-        className="rounded-md border border-line px-2 py-1"
+        className={`rounded-lg border px-3 py-1.5 transition-colors ${
+          theme === "dark" ? "border-accent/40 bg-accent/10 text-slate-100" : "border-line bg-slate-900 text-slate-300 hover:bg-slate-800"
+        }`}
         onClick={() => onChange("dark")}
         aria-pressed={theme === "dark"}
       >
@@ -50,11 +58,13 @@ export function ThemeToggle({ compact = false }: { compact?: boolean }) {
       </button>
       <button
         type="button"
-        className="rounded-md border border-line px-2 py-1"
-        onClick={() => onChange("system")}
-        aria-pressed={theme === "system"}
+        className={`rounded-lg border px-3 py-1.5 transition-colors ${
+          theme === "light" ? "border-accent/40 bg-accent/10 text-slate-100" : "border-line bg-slate-900 text-slate-300 hover:bg-slate-800"
+        }`}
+        onClick={() => onChange("light")}
+        aria-pressed={theme === "light"}
       >
-        System
+        Light
       </button>
     </div>
   );

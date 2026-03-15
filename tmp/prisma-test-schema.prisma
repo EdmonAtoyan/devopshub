@@ -1,0 +1,309 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../tmp/prisma-out"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum NotificationType {
+  POST_REPLY
+  POST_LIKE
+  ARTICLE_COMMENT
+  NEW_FOLLOWER
+}
+
+model User {
+  id             String   @id @default(cuid())
+  email          String   @unique
+  username       String   @unique
+  passwordHash   String
+  emailVerifiedAt DateTime?
+  name           String
+  bio            String?
+  avatarUrl      String?
+  specialties    String[]
+  githubUrl      String?
+  gitlabUrl      String?
+  linkedinUrl    String?
+  websiteUrl     String?
+  reputation     Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  posts          Post[]
+  articles       Article[]
+  snippets       Snippet[]
+  comments       Comment[]
+  articleComments ArticleComment[]
+  likes          PostLike[]
+  bookmarks      PostBookmark[]
+  articleLikes   ArticleLike[]
+  articleBookmarks ArticleBookmark[]
+  following      Follow[] @relation("following")
+  followers      Follow[] @relation("followers")
+  notifications  Notification[]
+  tagFollows     TagFollow[]
+  passwordResetTokens PasswordResetToken[]
+  emailVerificationTokens EmailVerificationToken[]
+
+  @@index([reputation, createdAt])
+}
+
+model Post {
+  id          String      @id @default(cuid())
+  body        String
+  codeBlock   String?
+  codeLang    String?
+  imageUrl    String?
+  linkUrl     String?
+  likeCount   Int         @default(0)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  authorId    String
+  author      User        @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  comments    Comment[]
+  likes       PostLike[]
+  bookmarks   PostBookmark[]
+  tags        PostTag[]
+
+  @@index([authorId, createdAt])
+  @@index([createdAt])
+  @@index([likeCount, createdAt])
+}
+
+model Article {
+  id          String            @id @default(cuid())
+  slug        String            @unique
+  title       String
+  body        String
+  coverImage  String?
+  likeCount   Int               @default(0)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  authorId    String
+  author      User              @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  comments    ArticleComment[]
+  likes       ArticleLike[]
+  bookmarks   ArticleBookmark[]
+  tags        ArticleTag[]
+
+  @@index([authorId, createdAt])
+  @@index([createdAt])
+  @@index([likeCount, createdAt])
+}
+
+model Snippet {
+  id          String      @id @default(cuid())
+  title       String
+  description String?
+  language    String
+  code        String
+  version     Int         @default(1)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  authorId    String
+  author      User        @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  tags        SnippetTag[]
+
+  @@index([authorId, createdAt])
+  @@index([language, createdAt])
+}
+
+model Tool {
+  id               String   @id @default(cuid())
+  name             String   @unique
+  description      String
+  category         String
+  githubRepoUrl    String?
+  websiteUrl       String?
+  docsUrl          String?
+  popularityScore  Int      @default(0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([category, popularityScore])
+}
+
+model Tag {
+  id            String       @id @default(cuid())
+  name          String       @unique
+  followerCount Int          @default(0)
+  createdAt     DateTime     @default(now())
+
+  posts         PostTag[]
+  articles      ArticleTag[]
+  snippets      SnippetTag[]
+  followers     TagFollow[]
+
+  @@index([followerCount, createdAt])
+}
+
+model PostTag {
+  postId String
+  tagId  String
+
+  post   Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+  tag    Tag  @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([postId, tagId])
+}
+
+model ArticleTag {
+  articleId String
+  tagId     String
+
+  article   Article @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  tag       Tag     @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([articleId, tagId])
+}
+
+model SnippetTag {
+  snippetId String
+  tagId     String
+
+  snippet   Snippet @relation(fields: [snippetId], references: [id], onDelete: Cascade)
+  tag       Tag     @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([snippetId, tagId])
+}
+
+model Comment {
+  id        String   @id @default(cuid())
+  body      String
+  createdAt DateTime @default(now())
+
+  postId    String
+  authorId  String
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([postId, createdAt])
+  @@index([authorId, createdAt])
+}
+
+model ArticleComment {
+  id        String   @id @default(cuid())
+  body      String
+  createdAt DateTime @default(now())
+
+  articleId String
+  authorId  String
+  article   Article  @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([articleId, createdAt])
+  @@index([authorId, createdAt])
+}
+
+model PostLike {
+  userId    String
+  postId    String
+  createdAt DateTime @default(now())
+
+  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  post      Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@id([userId, postId])
+}
+
+model PostBookmark {
+  userId    String
+  postId    String
+  createdAt DateTime @default(now())
+
+  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  post      Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@id([userId, postId])
+}
+
+model ArticleLike {
+  userId    String
+  articleId String
+  createdAt DateTime @default(now())
+
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  article   Article @relation(fields: [articleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, articleId])
+}
+
+model ArticleBookmark {
+  userId    String
+  articleId String
+  createdAt DateTime @default(now())
+
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  article   Article @relation(fields: [articleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, articleId])
+}
+
+model Follow {
+  followerId String
+  followeeId String
+  createdAt  DateTime @default(now())
+
+  follower   User @relation("following", fields: [followerId], references: [id], onDelete: Cascade)
+  followee   User @relation("followers", fields: [followeeId], references: [id], onDelete: Cascade)
+
+  @@id([followerId, followeeId])
+  @@index([followeeId, createdAt])
+}
+
+model TagFollow {
+  userId    String
+  tagId     String
+  createdAt DateTime @default(now())
+
+  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tag       Tag  @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([userId, tagId])
+  @@index([tagId, createdAt])
+}
+
+model Notification {
+  id         String           @id @default(cuid())
+  type       NotificationType
+  message    String
+  read       Boolean          @default(false)
+  createdAt  DateTime         @default(now())
+
+  userId     String
+  user       User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([userId, read, createdAt])
+}
+
+model PasswordResetToken {
+  id        String   @id @default(uuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+}
+
+model EmailVerificationToken {
+  id        String   @id @default(uuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+}

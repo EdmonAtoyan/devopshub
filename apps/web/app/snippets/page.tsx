@@ -1,9 +1,13 @@
 "use client";
 
+import { AutoLinkedText } from "@/components/auto-linked-text";
 import { CheckIcon, CopyIcon, PencilIcon, PlusIcon, SaveIcon, TrashIcon, XIcon } from "@/components/icons";
+import { SnippetActionButton, SnippetCard, SnippetCodePanel } from "@/components/snippet-card";
 import { Shell } from "@/components/shell";
 import { apiRequest } from "@/lib/api";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { getCurrentUser, type CurrentUser } from "@/lib/auth";
+import { createTextPreview } from "@/lib/preview";
+import { FormEvent, useEffect, useState } from "react";
 
 type SnippetItem = {
   id: string;
@@ -12,10 +16,8 @@ type SnippetItem = {
   language: string;
   code: string;
   version: number;
-  author: { id: string; username: string };
+  author: { id: string; username: string; verified?: boolean };
 };
-
-type Me = { id: string; username: string } | null;
 
 export default function SnippetsPage() {
   const [items, setItems] = useState<SnippetItem[]>([]);
@@ -23,17 +25,16 @@ export default function SnippetsPage() {
   const [language, setLanguage] = useState("yaml");
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
-  const [me, setMe] = useState<Me>(null);
+  const [me, setMe] = useState<CurrentUser>(null);
   const [editing, setEditing] = useState<{ id: string; title: string; language: string; code: string } | null>(null);
   const [copiedSnippetId, setCopiedSnippetId] = useState<string | null>(null);
   const [expandedSnippets, setExpandedSnippets] = useState<Record<string, boolean>>({});
 
-  const meId = useMemo(() => me?.id ?? "", [me]);
+  const meId = me?.id ?? "";
 
   const loadMe = async () => {
     try {
-      const data = await apiRequest<Me>("auth/me");
-      setMe(data);
+      setMe(await getCurrentUser());
     } catch {
       setMe(null);
     }
@@ -118,132 +119,126 @@ export default function SnippetsPage() {
 
   return (
     <Shell>
-      <header className="card p-4 page-enter">
-        <h2 className="text-2xl font-semibold">Code Snippets</h2>
-        <p className="mt-1 text-base text-slate-400">Reusable DevOps snippets with syntax-focused formatting.</p>
+      <header className="page-header page-enter">
+        <div className="page-header-copy">
+          <h1 className="page-title">Reusable code and command fragments</h1>
+          <p className="page-lead">Keep terse, copy-friendly implementation details here so they stay distinct from longer explanations and discussions.</p>
+        </div>
       </header>
 
-      <section className="card p-4 page-enter">
-        <form className="space-y-2" onSubmit={create}>
-          <input className="input" placeholder="Snippet title" value={title} onChange={(event) => setTitle(event.target.value)} required />
-          <input className="input" placeholder="Language (yaml, bash, terraform...)" value={language} onChange={(event) => setLanguage(event.target.value)} required />
-          <textarea className="input min-h-32 font-mono" placeholder="Paste your snippet" value={code} onChange={(event) => setCode(event.target.value)} required />
-          <button className="btn-positive inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold">
-            <PlusIcon size={16} />
-            Share snippet
-          </button>
-        </form>
-        {error ? <p className="mt-2 text-sm text-danger-soft">{error}</p> : null}
+      <section className="page-section page-enter">
+        <div className="space-y-4">
+          <div>
+            <h2 className="section-heading">Share a snippet</h2>
+            <p className="section-copy mt-1">Use a short title, keep the language explicit, and optimize for fast copy-paste reuse.</p>
+          </div>
+          <form className="space-y-4" onSubmit={create}>
+            <input className="input" placeholder="Snippet title" value={title} onChange={(event) => setTitle(event.target.value)} required />
+            <input className="input" placeholder="Language (yaml, bash, terraform...)" value={language} onChange={(event) => setLanguage(event.target.value)} required />
+            <textarea className="input min-h-40 font-mono" placeholder="Paste your snippet" value={code} onChange={(event) => setCode(event.target.value)} required />
+            <div className="form-actions">
+              <span className="text-sm text-slate-400">Keep snippets concise enough to scan, but complete enough to reuse safely.</span>
+              <button className="btn-primary w-full sm:w-auto">
+                <PlusIcon size={16} />
+                Share snippet
+              </button>
+            </div>
+          </form>
+        </div>
+        {error ? <p className="mt-4 text-sm text-danger-soft">{error}</p> : null}
       </section>
 
       {items.map((snippet) => {
         const isAuthor = meId === snippet.author.id;
         const expanded = !!expandedSnippets[snippet.id];
-        const preview = createPreview(snippet.code);
+        const preview = createTextPreview(snippet.code);
         const showToggle = preview.truncated;
 
-        return (
-          <article key={snippet.id} className="card p-4 page-enter">
-            <div className="flex flex-wrap items-center justify-between gap-2">
+        if (editing?.id === snippet.id) {
+          return (
+            <article key={snippet.id} className="page-section page-enter">
               <div>
-                <h3 className="text-lg font-semibold">{snippet.title}</h3>
-                <p className="mt-1 text-sm text-slate-500">by @{snippet.author.username} · v{snippet.version}</p>
+                <h3 className="section-heading">Refine the code without changing its visual hierarchy</h3>
               </div>
-              <div className="flex items-center gap-2">
-                <span className="rounded-md bg-slate-900 px-2 py-1 font-mono text-sm text-accent">{snippet.language}</span>
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-1 rounded-md border border-line px-2 py-1 text-xs"
-                  onClick={() => void copySnippet(snippet)}
-                >
-                  {copiedSnippetId === snippet.id ? (
-                    <>
-                      Copied
-                      <CheckIcon size={12} />
-                    </>
-                  ) : (
-                    <>
-                      Copy
-                      <CopyIcon size={12} />
-                    </>
-                  )}
-                </button>
-                {isAuthor ? (
-                  <>
-                    <button
-                      type="button"
-                      className="inline-flex items-center gap-1 rounded-md border border-line px-2 py-1 text-xs"
-                      onClick={() => setEditing({ id: snippet.id, title: snippet.title, language: snippet.language, code: snippet.code })}
-                    >
-                      <PencilIcon size={12} />
-                      Edit
-                    </button>
-                    <button
-                      type="button"
-                      className="btn-danger inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs"
-                      onClick={() => void remove(snippet.id)}
-                    >
-                      <TrashIcon size={12} />
-                      Delete
-                    </button>
-                  </>
-                ) : null}
-              </div>
-            </div>
-
-            {editing?.id === snippet.id ? (
-              <div className="mt-3 space-y-2">
+              <div className="mt-4 space-y-3">
                 <input className="input" value={editing.title} onChange={(event) => setEditing({ ...editing, title: event.target.value })} />
                 <input className="input" value={editing.language} onChange={(event) => setEditing({ ...editing, language: event.target.value })} />
-                <textarea className="input min-h-40 font-mono" value={editing.code} onChange={(event) => setEditing({ ...editing, code: event.target.value })} />
-                <div className="flex gap-2 text-sm">
-                  <button type="button" className="inline-flex items-center gap-1 rounded-lg border border-line px-3 py-1" onClick={() => void saveEdit()}>
-                    <SaveIcon size={14} />
+                <textarea className="input min-h-48 font-mono" value={editing.code} onChange={(event) => setEditing({ ...editing, code: event.target.value })} />
+                <div className="action-cluster">
+                  <SnippetActionButton type="button" tone="positive" onClick={() => void saveEdit()}>
+                    <SaveIcon size={12} />
                     Save
-                  </button>
-                  <button type="button" className="inline-flex items-center gap-1 rounded-lg border border-line px-3 py-1" onClick={() => setEditing(null)}>
-                    <XIcon size={14} />
+                  </SnippetActionButton>
+                  <SnippetActionButton type="button" onClick={() => setEditing(null)}>
+                    <XIcon size={12} />
                     Cancel
-                  </button>
+                  </SnippetActionButton>
                 </div>
               </div>
-            ) : (
-              <div className="mt-3">
-                <pre className={`overflow-x-auto rounded-xl border border-line bg-bg p-3 text-sm text-slate-300 transition-all duration-200 ${expanded ? "max-h-[1200px]" : "max-h-72 overflow-hidden"}`}>
-                  <code>{expanded ? snippet.code : preview.text}</code>
-                </pre>
+            </article>
+          );
+        }
+
+        return (
+          <SnippetCard
+            key={snippet.id}
+            className="page-section page-enter"
+            snippet={snippet}
+            codeSection={
+              <div>
+                <SnippetCodePanel className={expanded ? "max-h-none" : "max-h-80 overflow-y-hidden"}>
+                  <AutoLinkedText text={expanded ? snippet.code : preview.text} />
+                </SnippetCodePanel>
                 {showToggle ? (
                   <button
                     type="button"
-                    className="mt-2 inline-flex items-center gap-1 text-sm text-accent"
+                    className="snippet-toggle mt-3"
                     onClick={() => setExpandedSnippets((prev) => ({ ...prev, [snippet.id]: !expanded }))}
                   >
                     {expanded ? "↑ Show less" : "↓ Show more"}
                   </button>
                 ) : null}
               </div>
-            )}
-          </article>
+            }
+            actionBar={
+              <>
+                <SnippetActionButton
+                  type="button"
+                  tone={copiedSnippetId === snippet.id ? "positive" : "default"}
+                  onClick={() => void copySnippet(snippet)}
+                >
+                  {copiedSnippetId === snippet.id ? (
+                    <>
+                      <CheckIcon size={12} />
+                      Copied
+                    </>
+                  ) : (
+                    <>
+                      <CopyIcon size={12} />
+                      Copy
+                    </>
+                  )}
+                </SnippetActionButton>
+                {isAuthor ? (
+                  <>
+                    <SnippetActionButton
+                      type="button"
+                      onClick={() => setEditing({ id: snippet.id, title: snippet.title, language: snippet.language, code: snippet.code })}
+                    >
+                      <PencilIcon size={12} />
+                      Edit
+                    </SnippetActionButton>
+                    <SnippetActionButton type="button" tone="danger" onClick={() => void remove(snippet.id)}>
+                      <TrashIcon size={12} />
+                      Delete
+                    </SnippetActionButton>
+                  </>
+                ) : null}
+              </>
+            }
+          />
         );
       })}
     </Shell>
   );
-}
-
-function createPreview(content: string) {
-  const maxChars = 250;
-  const lines = content.split("\n");
-  const byLines = lines.slice(0, 10).join("\n");
-  const byChars = content.slice(0, maxChars);
-  const truncatedByChars = content.length > maxChars;
-  const truncatedByLines = lines.length > 10;
-
-  if (truncatedByChars && truncatedByLines) {
-    const text = byLines.length < byChars.length ? byLines : `${byChars}...`;
-    return { text, truncated: true };
-  }
-
-  if (truncatedByLines) return { text: `${byLines}...`, truncated: true };
-  if (truncatedByChars) return { text: `${byChars}...`, truncated: true };
-  return { text: content, truncated: false };
 }

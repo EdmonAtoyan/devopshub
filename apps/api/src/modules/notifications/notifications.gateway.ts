@@ -8,10 +8,11 @@ import {
 } from "@nestjs/websockets";
 import { JwtService } from "@nestjs/jwt";
 import { Server, Socket } from "socket.io";
+import { corsOriginValidator } from "../../common/cors";
 
 @WebSocketGateway({
   cors: {
-    origin: true,
+    origin: corsOriginValidator,
     credentials: true,
   },
 })

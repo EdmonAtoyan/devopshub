@@ -1,5 +1,9 @@
-import { Controller, Get, Query } from "@nestjs/common";
+import { Controller, Get, Query, UseGuards } from "@nestjs/common";
+import { CurrentUser } from "../../common/current-user.decorator";
+import { OptionalJwtAuthGuard } from "../../common/optional-jwt-auth.guard";
+import { clampInt } from "../../common/query";
 import { PrismaService } from "../../prisma.service";
+import { buildPostInclude, enrichPosts } from "../feed/post-query";
 
 @Controller("search")
 export class SearchController {
@@ -9,7 +13,7 @@ export class SearchController {
   async searchUsers(@Query("q") q = "", @Query("limit") limit = "8") {
     const term = q.trim();
     if (!term) return [];
-    const safeLimit = this.clamp(limit, 1, 20, 8);
+    const safeLimit = clampInt(limit, 1, 20, 8);
 
     return this.prisma.user.findMany({
       where: {
@@ -21,6 +25,7 @@ export class SearchController {
       select: {
         id: true,
         username: true,
+        verified: true,
         name: true,
         bio: true,
         avatarUrl: true,
@@ -30,13 +35,18 @@ export class SearchController {
     });
   }
 
+  @UseGuards(OptionalJwtAuthGuard)
   @Get()
-  async search(@Query("q") q = "", @Query("limit") limit = "10") {
+  async search(
+    @Query("q") q = "",
+    @Query("limit") limit = "10",
+    @CurrentUser() user: { userId: string } | null = null,
+  ) {
     const term = q.trim();
     if (!term) return { users: [], posts: [], articles: [], tools: [], tags: [] };
-    const safeLimit = this.clamp(limit, 1, 20, 10);
+    const safeLimit = clampInt(limit, 1, 20, 10);
 
-    const [users, posts, articles, tools, tags] = await Promise.all([
+    const [users, postsRaw, articles, tools, tags] = await Promise.all([
       this.prisma.user.findMany({
         where: {
           OR: [
@@ -47,6 +57,7 @@ export class SearchController {
         select: {
           id: true,
           username: true,
+          verified: true,
           name: true,
           bio: true,
           avatarUrl: true,
@@ -55,7 +66,8 @@ export class SearchController {
       }),
       this.prisma.post.findMany({
         where: { body: { contains: term, mode: "insensitive" } },
-        select: { id: true, body: true, createdAt: true, authorId: true },
+        include: buildPostInclude(0),
+        orderBy: { createdAt: "desc" },
         take: safeLimit,
       }),
       this.prisma.article.findMany({
@@ -79,12 +91,13 @@ export class SearchController {
       }),
     ]);
 
-    return { users, posts, articles, tools, tags };
-  }
+    const posts = await enrichPosts(
+      this.prisma,
+      postsRaw as Array<Record<string, unknown> & { id: string; _count: { likes: number; comments: number; bookmarks: number } }>,
+      0,
+      user?.userId,
+    );
 
-  private clamp(value: string, min: number, max: number, fallback: number) {
-    const parsed = Number.parseInt(value, 10);
-    if (Number.isNaN(parsed)) return fallback;
-    return Math.max(min, Math.min(max, parsed));
+    return { users, posts, articles, tools, tags };
   }
 }

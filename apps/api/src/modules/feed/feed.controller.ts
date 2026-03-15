@@ -9,13 +9,23 @@ import {
   Patch,
   Post,
   Query,
+  Req,
   UseGuards,
 } from "@nestjs/common";
+import { createHash, randomUUID } from "crypto";
+import { Request } from "express";
+import { toNotificationDto } from "../../common/notifications";
+import { OptionalJwtAuthGuard } from "../../common/optional-jwt-auth.guard";
+import { clampInt } from "../../common/query";
+import { normalizeTagNames } from "../../common/tags";
 import { CurrentUser } from "../../common/current-user.decorator";
 import { JwtAuthGuard } from "../../common/jwt-auth.guard";
 import { NotificationsGateway } from "../notifications/notifications.gateway";
 import { PrismaService } from "../../prisma.service";
 import { CreateCommentDto, CreatePostDto, UpdateCommentDto, UpdatePostDto } from "./dto";
+import { buildPostInclude, enrichPosts } from "./post-query";
+
+const POST_VIEW_WINDOW_MS = 15 * 60_000;
 
 @Controller(["feed", "posts"])
 export class FeedController {
@@ -24,35 +34,63 @@ export class FeedController {
     private readonly notificationsGateway: NotificationsGateway,
   ) {}
 
+  @UseGuards(OptionalJwtAuthGuard)
   @Get()
-  list(
+  async list(
     @Query("sort") sort = "latest",
     @Query("limit") limit = "30",
     @Query("commentLimit") commentLimit = "12",
+    @CurrentUser() user: { userId: string } | null = null,
   ) {
-    let orderBy: any = { createdAt: "desc" };
+    let orderBy:
+      | { createdAt: "desc" }
+      | [{ likeCount: "desc" }, { createdAt: "desc" }]
+      | [{ comments: { _count: "desc" } }, { createdAt: "desc" }] = { createdAt: "desc" };
     if (sort === "likes" || sort === "top") {
       orderBy = [{ likeCount: "desc" }, { createdAt: "desc" }];
     } else if (sort === "comments") {
       orderBy = [{ comments: { _count: "desc" } }, { createdAt: "desc" }];
     }
-    const safeLimit = this.clamp(limit, 1, 50, 30);
-    const safeCommentLimit = this.clamp(commentLimit, 0, 20, 12);
+    const safeLimit = clampInt(limit, 1, 50, 30);
+    const safeCommentLimit = clampInt(commentLimit, 0, 20, 12);
 
-    return this.prisma.post.findMany({
+    const posts = await this.prisma.post.findMany({
       orderBy,
-      include: {
-        author: { select: { id: true, username: true, name: true } },
-        tags: { select: { tag: { select: { name: true } } } },
-        comments: {
-          orderBy: { createdAt: "desc" },
-          take: safeCommentLimit,
-          include: { author: { select: { id: true, username: true, name: true } } },
-        },
-        _count: { select: { likes: true, comments: true, bookmarks: true } },
-      },
+      include: buildPostInclude(safeCommentLimit),
       take: safeLimit,
     });
+
+    return enrichPosts(
+      this.prisma,
+      posts as Array<Record<string, unknown> & { id: string; _count: { likes: number; comments: number; bookmarks: number } }>,
+      safeCommentLimit,
+      user?.userId,
+    );
+  }
+
+  @UseGuards(OptionalJwtAuthGuard)
+  @Get(":id")
+  async getById(
+    @Param("id") id: string,
+    @Query("commentLimit") commentLimit = "12",
+    @CurrentUser() user: { userId: string } | null = null,
+  ) {
+    const safeCommentLimit = clampInt(commentLimit, 0, 20, 12);
+    const post = await this.prisma.post.findUnique({
+      where: { id },
+      include: buildPostInclude(safeCommentLimit),
+    });
+
+    if (!post) return null;
+
+    const [enrichedPost] = await enrichPosts(
+      this.prisma,
+      [post as Record<string, unknown> & { id: string; _count: { likes: number; comments: number; bookmarks: number } }],
+      safeCommentLimit,
+      user?.userId,
+    );
+
+    return enrichedPost;
   }
 
   @UseGuards(JwtAuthGuard)
@@ -71,20 +109,18 @@ export class FeedController {
           create: tagLinks.map((tagId) => ({ tagId })),
         },
       },
-      include: {
-        author: { select: { id: true, username: true, name: true } },
-        tags: { select: { tag: { select: { name: true } } } },
-        comments: {
-          orderBy: { createdAt: "desc" },
-          take: 12,
-          include: { author: { select: { id: true, username: true, name: true } } },
-        },
-        _count: { select: { likes: true, comments: true, bookmarks: true } },
-      },
+      include: buildPostInclude(12),
     });
 
-    this.notificationsGateway.emitPost(post);
-    return post;
+    const [enrichedPost] = await enrichPosts(
+      this.prisma,
+      [post as Record<string, unknown> & { id: string; _count: { likes: number; comments: number; bookmarks: number } }],
+      12,
+      user.userId,
+    );
+
+    this.notificationsGateway.emitPost(enrichedPost);
+    return enrichedPost;
   }
 
   @UseGuards(JwtAuthGuard)
@@ -94,7 +130,10 @@ export class FeedController {
     @Body() dto: UpdatePostDto,
     @CurrentUser() user: { userId: string },
   ) {
-    await this.ensureOwnership(id, user.userId);
+    const post = await this.ensureOwnership(id, user.userId);
+    if (post.originalPostId) {
+      throw new ForbiddenException("Reposts cannot be edited");
+    }
 
     if (dto.tags) {
       await this.prisma.postTag.deleteMany({ where: { postId: id } });
@@ -105,7 +144,7 @@ export class FeedController {
       });
     }
 
-    return this.prisma.post.update({
+    const updated = await this.prisma.post.update({
       where: { id },
       data: {
         body: dto.body,
@@ -113,13 +152,34 @@ export class FeedController {
         codeLang: dto.codeLang,
         linkUrl: dto.linkUrl,
       },
+      include: buildPostInclude(12),
     });
+
+    const [enrichedPost] = await enrichPosts(
+      this.prisma,
+      [updated as Record<string, unknown> & { id: string; _count: { likes: number; comments: number; bookmarks: number } }],
+      12,
+      user.userId,
+    );
+    return enrichedPost;
   }
 
   @UseGuards(JwtAuthGuard)
   @Delete(":id")
   async remove(@Param("id") id: string, @CurrentUser() user: { userId: string }) {
-    await this.ensureOwnership(id, user.userId);
+    const post = await this.ensureOwnership(id, user.userId);
+    if (post.originalPostId) {
+      await this.prisma.$transaction([
+        this.prisma.post.delete({ where: { id } }),
+        this.prisma.$executeRaw`
+          UPDATE "Post"
+          SET "repostCount" = GREATEST("repostCount" - 1, 0)
+          WHERE "id" = ${post.originalPostId}
+        `,
+      ]);
+      return { success: true };
+    }
+
     await this.prisma.post.delete({ where: { id } });
     return { success: true };
   }
@@ -155,17 +215,93 @@ export class FeedController {
           message: `${actor?.username || "Someone"} liked your post`,
         },
       });
-      this.notificationsGateway.emitNotification(post.authorId, {
-        id: notification.id,
-        userId: notification.userId,
-        type: "LIKE",
-        message: notification.message,
-        createdAt: notification.createdAt,
-        isRead: notification.read,
-      });
+      this.notificationsGateway.emitNotification(post.authorId, toNotificationDto(notification));
     }
 
     return { liked: true };
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post(":id/repost")
+  async toggleRepost(@Param("id") id: string, @CurrentUser() user: { userId: string }) {
+    const rootPost = await this.resolveRootPost(id);
+    if (rootPost.authorId === user.userId) {
+      throw new BadRequestException("You cannot repost your own post");
+    }
+
+    const [existing] = await this.prisma.$queryRaw<Array<{ id: string }>>`
+      SELECT "id"
+      FROM "Post"
+      WHERE "authorId" = ${user.userId} AND "originalPostId" = ${rootPost.id}
+      LIMIT 1
+    `;
+
+    if (existing) {
+      await this.prisma.$transaction([
+        this.prisma.post.delete({ where: { id: existing.id } }),
+        this.prisma.$executeRaw`
+          UPDATE "Post"
+          SET "repostCount" = GREATEST("repostCount" - 1, 0)
+          WHERE "id" = ${rootPost.id}
+        `,
+      ]);
+      return { reposted: false };
+    }
+
+    const repostId = await this.prisma.$transaction(async (tx: any) => {
+      const createdId = randomUUID();
+      await tx.$executeRaw`
+        INSERT INTO "Post" (
+          "id",
+          "body",
+          "authorId",
+          "originalPostId",
+          "likeCount",
+          "viewCount",
+          "repostCount",
+          "createdAt",
+          "updatedAt"
+        )
+        VALUES (
+          ${createdId},
+          '',
+          ${user.userId},
+          ${rootPost.id},
+          0,
+          0,
+          0,
+          NOW(),
+          NOW()
+        )
+      `;
+
+      await tx.$executeRaw`
+        UPDATE "Post"
+        SET "repostCount" = "repostCount" + 1
+        WHERE "id" = ${rootPost.id}
+      `;
+
+      return createdId;
+    });
+
+    const repostRecord = await this.prisma.post.findUnique({
+      where: { id: repostId },
+      include: buildPostInclude(12),
+    });
+    const [repost] = repostRecord
+      ? await enrichPosts(
+          this.prisma,
+          [repostRecord as Record<string, unknown> & { id: string; _count: { likes: number; comments: number; bookmarks: number } }],
+          12,
+          user.userId,
+        )
+      : [null];
+
+    if (repost) {
+      this.notificationsGateway.emitPost(repost);
+    }
+
+    return { reposted: true, post: repost };
   }
 
   @UseGuards(JwtAuthGuard)
@@ -180,6 +316,90 @@ export class FeedController {
 
     await this.prisma.postBookmark.create({ data: { userId: user.userId, postId: id } });
     return { bookmarked: true };
+  }
+
+  @UseGuards(OptionalJwtAuthGuard)
+  @Post(":id/view")
+  async trackView(
+    @Param("id") id: string,
+    @Req() req: Request,
+    @CurrentUser() user: { userId: string } | null,
+  ) {
+    const rootPost = await this.resolveRootPost(id);
+    const recentThreshold = new Date(Date.now() - POST_VIEW_WINDOW_MS);
+
+    if (user?.userId) {
+      const [existing] = await this.prisma.$queryRaw<Array<{ lastViewedAt: Date }>>`
+        SELECT "lastViewedAt"
+        FROM "PostView"
+        WHERE "postId" = ${rootPost.id} AND "userId" = ${user.userId}
+        LIMIT 1
+      `;
+
+      if (existing && existing.lastViewedAt >= recentThreshold) {
+        return { counted: false, viewCount: rootPost.viewCount };
+      }
+
+      const [updated] = await this.prisma.$transaction(async (tx: any) => {
+        if (existing) {
+          await tx.$executeRaw`
+            UPDATE "PostView"
+            SET "lastViewedAt" = NOW()
+            WHERE "postId" = ${rootPost.id} AND "userId" = ${user.userId}
+          `;
+        } else {
+          await tx.$executeRaw`
+            INSERT INTO "PostView" ("id", "postId", "userId", "lastViewedAt", "createdAt")
+            VALUES (${randomUUID()}, ${rootPost.id}, ${user.userId}, NOW(), NOW())
+          `;
+        }
+
+        return tx.$queryRaw<Array<{ viewCount: number }>>`
+          UPDATE "Post"
+          SET "viewCount" = "viewCount" + 1
+          WHERE "id" = ${rootPost.id}
+          RETURNING "viewCount"
+        `;
+      });
+
+      return { counted: true, viewCount: updated?.viewCount ?? rootPost.viewCount + 1 };
+    }
+
+    const viewerHash = this.resolveViewerHash(req);
+    const [existing] = await this.prisma.$queryRaw<Array<{ lastViewedAt: Date }>>`
+      SELECT "lastViewedAt"
+      FROM "PostView"
+      WHERE "postId" = ${rootPost.id} AND "viewerHash" = ${viewerHash}
+      LIMIT 1
+    `;
+
+    if (existing && existing.lastViewedAt >= recentThreshold) {
+      return { counted: false, viewCount: rootPost.viewCount };
+    }
+
+    const [updated] = await this.prisma.$transaction(async (tx: any) => {
+      if (existing) {
+        await tx.$executeRaw`
+          UPDATE "PostView"
+          SET "lastViewedAt" = NOW()
+          WHERE "postId" = ${rootPost.id} AND "viewerHash" = ${viewerHash}
+        `;
+      } else {
+        await tx.$executeRaw`
+          INSERT INTO "PostView" ("id", "postId", "viewerHash", "lastViewedAt", "createdAt")
+          VALUES (${randomUUID()}, ${rootPost.id}, ${viewerHash}, NOW(), NOW())
+        `;
+      }
+
+      return tx.$queryRaw<Array<{ viewCount: number }>>`
+        UPDATE "Post"
+        SET "viewCount" = "viewCount" + 1
+        WHERE "id" = ${rootPost.id}
+        RETURNING "viewCount"
+      `;
+    });
+
+    return { counted: true, viewCount: updated?.viewCount ?? rootPost.viewCount + 1 };
   }
 
   @UseGuards(JwtAuthGuard)
@@ -244,7 +464,7 @@ export class FeedController {
         authorId: input.userId,
         body,
       },
-      include: { author: { select: { id: true, username: true, name: true } } },
+      include: { author: { select: { id: true, username: true, verified: true, name: true } } },
     });
 
     const recipients = new Set<string>();
@@ -260,14 +480,7 @@ export class FeedController {
             message: `${comment.author.username} commented on your post`,
           },
         });
-        this.notificationsGateway.emitNotification(recipientId, {
-          id: notification.id,
-          userId: notification.userId,
-          type: "COMMENT",
-          message: notification.message,
-          createdAt: notification.createdAt,
-          isRead: notification.read,
-        });
+        this.notificationsGateway.emitNotification(recipientId, toNotificationDto(notification));
       }),
     );
 
@@ -285,7 +498,7 @@ export class FeedController {
     return this.prisma.comment.update({
       where: { id: commentId },
       data: { body: dto.body },
-      include: { author: { select: { id: true, username: true, name: true } } },
+      include: { author: { select: { id: true, username: true, verified: true, name: true } } },
     });
   }
 
@@ -301,10 +514,16 @@ export class FeedController {
   }
 
   private async ensureOwnership(postId: string, userId: string) {
-    const post = await this.prisma.post.findUnique({ where: { id: postId }, select: { authorId: true } });
+    const [post] = await this.prisma.$queryRaw<Array<{ authorId: string; originalPostId: string | null }>>`
+      SELECT "authorId", "originalPostId"
+      FROM "Post"
+      WHERE "id" = ${postId}
+      LIMIT 1
+    `;
     if (!post || post.authorId !== userId) {
       throw new ForbiddenException("You can only modify your own posts");
     }
+    return post;
   }
 
   private async ensureCommentOwnership(commentId: string, userId: string) {
@@ -315,23 +534,62 @@ export class FeedController {
   }
 
   private async resolveTags(rawTags: string[]) {
-    const clean = rawTags.map((tag) => tag.trim().toLowerCase()).filter(Boolean);
-    const unique = Array.from(new Set(clean));
+    const unique = normalizeTagNames(rawTags);
 
-    const tags = await Promise.all(unique.map((name) =>
-      this.prisma.tag.upsert({
-        where: { name },
-        update: {},
-        create: { name },
-      }),
-    ));
+    const tags = await Promise.all(
+      unique.map((name) =>
+        this.prisma.tag.upsert({
+          where: { name },
+          update: {},
+          create: { name },
+        }),
+      ),
+    );
 
     return tags.map((tag) => tag.id);
   }
 
-  private clamp(value: string, min: number, max: number, fallback: number) {
-    const parsed = Number.parseInt(value, 10);
-    if (Number.isNaN(parsed)) return fallback;
-    return Math.max(min, Math.min(max, parsed));
+  private async resolveRootPost(postId: string) {
+    const [post] = await this.prisma.$queryRaw<Array<{ id: string; authorId: string; originalPostId: string | null; viewCount: number }>>`
+      SELECT "id", "authorId", "originalPostId", "viewCount"
+      FROM "Post"
+      WHERE "id" = ${postId}
+      LIMIT 1
+    `;
+
+    if (!post) {
+      throw new BadRequestException("Post not found");
+    }
+
+    if (!post.originalPostId) {
+      return post;
+    }
+
+    const [originalPost] = await this.prisma.$queryRaw<Array<{ id: string; authorId: string; viewCount: number }>>`
+      SELECT "id", "authorId", "viewCount"
+      FROM "Post"
+      WHERE "id" = ${post.originalPostId}
+      LIMIT 1
+    `;
+
+    if (!originalPost) {
+      throw new BadRequestException("Post not found");
+    }
+
+    return {
+      ...originalPost,
+      originalPostId: null,
+    };
+  }
+
+  private resolveViewerHash(req: Request) {
+    const forwarded = req.headers["x-forwarded-for"];
+    const forwardedValue = Array.isArray(forwarded) ? forwarded[0] : forwarded;
+    const ip = forwardedValue?.split(",")[0]?.trim() || req.ip || req.socket.remoteAddress || "unknown-ip";
+    const userAgent = req.headers["user-agent"] || "unknown-agent";
+
+    return createHash("sha256")
+      .update(`${ip}|${userAgent}`)
+      .digest("hex");
   }
 }

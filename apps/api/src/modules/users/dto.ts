@@ -16,3 +16,9 @@ export class UpdateProfileDto {
   @MaxLength(280)
   bio?: string;
 }
+
+export class VerifyAccountDto {
+  @IsOptional()
+  @IsString()
+  captchaToken?: string;
+}

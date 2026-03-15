@@ -119,6 +119,14 @@ export function SaveIcon(props: IconProps) {
   );
 }
 
+export function BookmarkIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="M6 3h12a1 1 0 0 1 1 1v17l-7-4-7 4V4a1 1 0 0 1 1-1z" />
+    </IconBase>
+  );
+}
+
 export function TrashIcon(props: IconProps) {
   return (
     <IconBase {...props}>
@@ -187,6 +195,26 @@ export function SearchIcon(props: IconProps) {
     <IconBase {...props}>
       <circle cx="11" cy="11" r="7" />
       <path d="M20 20l-3.5-3.5" />
+    </IconBase>
+  );
+}
+
+export function EyeIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z" />
+      <circle cx="12" cy="12" r="3" />
+    </IconBase>
+  );
+}
+
+export function EyeOffIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="M3 3l18 18" />
+      <path d="M10.6 10.6A3 3 0 0 0 13.4 13.4" />
+      <path d="M9.9 5.1A10.6 10.6 0 0 1 12 5c6.5 0 10 7 10 7a18.5 18.5 0 0 1-4 4.9" />
+      <path d="M6.7 6.7A18.8 18.8 0 0 0 2 12s3.5 7 10 7c1.8 0 3.4-.5 4.8-1.2" />
     </IconBase>
   );
 }
@@ -260,6 +288,37 @@ export function ShareIcon(props: IconProps) {
       <circle cx="18" cy="19" r="3" />
       <path d="M8.7 10.7l6.6-3.4" />
       <path d="M8.7 13.3l6.6 3.4" />
+    </IconBase>
+  );
+}
+
+export function RepeatIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="M17 2l4 4-4 4" />
+      <path d="M3 11V9a3 3 0 0 1 3-3h15" />
+      <path d="M7 22l-4-4 4-4" />
+      <path d="M21 13v2a3 3 0 0 1-3 3H3" />
+    </IconBase>
+  );
+}
+
+export function MoreHorizontalIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <circle cx="5" cy="12" r="1.5" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none" />
+      <circle cx="19" cy="12" r="1.5" fill="currentColor" stroke="none" />
+    </IconBase>
+  );
+}
+
+export function MenuIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="M4 7h16" />
+      <path d="M4 12h16" />
+      <path d="M4 17h16" />
     </IconBase>
   );
 }

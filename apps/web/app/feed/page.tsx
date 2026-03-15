@@ -1,38 +1,52 @@
 "use client";
 
+import { AutoLinkedText } from "@/components/auto-linked-text";
 import { Shell } from "@/components/shell";
+import { MoreHorizontalIcon } from "@/components/icons";
+import { PostCard } from "@/components/post-card";
 import { PixelInfinityLoader } from "@/components/pixel-infinity-loader";
-import { apiRequest, apiUrl } from "@/lib/api";
-import { connectRealtime } from "@/lib/realtime";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { UsernameInline } from "@/components/verified-badge";
+import { apiRequest } from "@/lib/api";
+import { getCurrentUser, type CurrentUser } from "@/lib/auth";
+import { applyPostInteraction, type PostActionType, type PostViewerState, toPostCardData } from "@/lib/posts";
+import { createTextPreview } from "@/lib/preview";
+import { connectRealtime, type SocketLike } from "@/lib/realtime";
+import { FormEvent, useEffect, useRef, useState } from "react";
 
 type FeedComment = {
   id: string;
   body: string;
   createdAt: string;
   parentId?: string | null;
-  author: { id: string; username: string; name: string };
+  author: { id: string; username: string; verified?: boolean; name: string };
   replies?: FeedComment[];
 };
 
-type FeedItem = {
+type FeedPostContent = {
   id: string;
   body: string;
   createdAt: string;
-  author: { id: string; username: string; name: string };
+  viewCount: number;
+  author: { id: string; username: string; verified?: boolean; name: string };
   tags: { tag: { name: string } }[];
   comments: FeedComment[];
-  _count: { likes: number; comments: number; bookmarks: number };
+  _count: { likes: number; comments: number; bookmarks: number; reposts: number };
+  viewer: PostViewerState;
 };
 
-type Me = { id: string; username: string } | null;
+type FeedItem = FeedPostContent & {
+  originalPost?: FeedPostContent | null;
+};
+
 type FeedSort = "latest" | "likes" | "comments";
+
+const POST_BODY_MAX_LENGTH = 10_000;
 
 export default function FeedPage() {
   const [posts, setPosts] = useState<FeedItem[]>([]);
   const [body, setBody] = useState("");
   const [error, setError] = useState("");
-  const [me, setMe] = useState<Me>(null);
+  const [me, setMe] = useState<CurrentUser>(null);
   const [menuFor, setMenuFor] = useState<string | null>(null);
   const [editingPost, setEditingPost] = useState<{ id: string; body: string } | null>(null);
   const [newCommentByPost, setNewCommentByPost] = useState<Record<string, string>>({});
@@ -43,18 +57,14 @@ export default function FeedPage() {
   const [expandedPosts, setExpandedPosts] = useState<Record<string, boolean>>({});
   const [feedLoading, setFeedLoading] = useState(false);
   const [commentsLoadingPostId, setCommentsLoadingPostId] = useState<string | null>(null);
+  const [pendingActions, setPendingActions] = useState<Record<string, Partial<Record<PostActionType, boolean>>>>({});
+  const trackedViewsRef = useRef<Set<string>>(new Set());
 
-  const meId = useMemo(() => me?.id ?? "", [me]);
+  const meId = me?.id ?? "";
 
   const loadMe = async () => {
     try {
-      const response = await fetch(apiUrl("auth/me"), { credentials: "include" });
-      if (!response.ok) {
-        setMe(null);
-        return;
-      }
-      const data = (await response.json()) as Me;
-      setMe(data);
+      setMe(await getCurrentUser());
     } catch {
       setMe(null);
     }
@@ -64,12 +74,7 @@ export default function FeedPage() {
     setFeedLoading(true);
     try {
       const data = await apiRequest<FeedItem[]>(`feed?sort=${nextSort}&limit=30&commentLimit=12`);
-      setPosts(
-        data.map((post) => ({
-          ...post,
-          comments: buildThreadedComments(post.comments || []),
-        })),
-      );
+      setPosts(data.map(hydrateFeedItem));
       setError("");
     } catch {
       setError("Could not load feed. Ensure API is running.");
@@ -85,17 +90,14 @@ export default function FeedPage() {
 
   useEffect(() => {
     let mounted = true;
-    let socket: {
-      on: (event: string, cb: (...args: any[]) => void) => void;
-      off: (event: string, cb?: (...args: any[]) => void) => void;
-      disconnect: () => void;
-    } | null = null;
+    let socket: SocketLike | null = null;
 
     const onNewPost = (post: FeedItem) => {
       if (!mounted || sort !== "latest") return;
       setPosts((prev) => {
-        if (prev.some((item) => item.id === post.id)) return prev;
-        return [post, ...prev].slice(0, 50);
+        const nextPost = hydrateFeedItem(post);
+        if (prev.some((item) => item.id === nextPost.id)) return prev;
+        return [nextPost, ...prev].slice(0, 50);
       });
     };
 
@@ -115,6 +117,25 @@ export default function FeedPage() {
     };
   }, [sort]);
 
+  useEffect(() => {
+    const targets = Array.from(
+      new Set(posts.map((post) => (post.originalPost || post).id).filter((id) => !trackedViewsRef.current.has(id))),
+    );
+
+    if (targets.length === 0) {
+      return;
+    }
+
+    targets.forEach((id) => {
+      trackedViewsRef.current.add(id);
+      void apiRequest<{ counted: boolean; viewCount: number }>(`feed/${id}/view`, { method: "POST" })
+        .then((result) => {
+          setPosts((current) => current.map((post) => updateFeedItemViewCount(post, id, result.viewCount)));
+        })
+        .catch(() => undefined);
+    });
+  }, [posts]);
+
   const createPost = async (event: FormEvent) => {
     event.preventDefault();
     if (!body.trim()) return;
@@ -123,17 +144,71 @@ export default function FeedPage() {
       await apiRequest("feed", { method: "POST", body: JSON.stringify({ body }) });
       setBody("");
       await load();
-    } catch {
-      setError("You need to log in before posting.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not publish post.");
     }
   };
 
-  const interact = async (id: string, action: "like" | "bookmark") => {
+  const interact = async (id: string, action: PostActionType) => {
+    if (!meId) {
+      setError(action === "repost" ? "Login is required to repost." : "Login is required for this action.");
+      return;
+    }
+    if (pendingActions[id]?.[action]) {
+      return;
+    }
+
+    const previousActive = getInteractionState(posts, id, action);
+    setPendingActions((current) => ({
+      ...current,
+      [id]: {
+        ...current[id],
+        [action]: true,
+      },
+    }));
+    setPosts((current) => current.map((post) => applyPostInteraction(post, id, action)));
+
     try {
-      await apiRequest(`feed/${id}/${action}`, { method: "POST" });
-      await load();
+      if (action === "repost") {
+        const result = await apiRequest<{ reposted: boolean; post?: FeedItem | null }>(`feed/${id}/${action}`, { method: "POST" });
+        setPosts((current) => {
+          let next = current.map((post) => applyPostInteraction(post, id, action, result.reposted));
+          if (result.reposted && result.post && sort === "latest") {
+            const repostPost = hydrateFeedItem(result.post);
+            if (!next.some((entry) => entry.id === repostPost.id)) {
+              next = [repostPost, ...next].slice(0, 50);
+            }
+          }
+          if (!result.reposted) {
+            next = next.filter((entry) => !(entry.author.id === meId && entry.originalPost?.id === id));
+          }
+          return next;
+        });
+      } else if (action === "like") {
+        const result = await apiRequest<{ liked: boolean }>(`feed/${id}/${action}`, { method: "POST" });
+        setPosts((current) => current.map((post) => applyPostInteraction(post, id, action, result.liked)));
+      } else {
+        const result = await apiRequest<{ bookmarked: boolean }>(`feed/${id}/${action}`, { method: "POST" });
+        setPosts((current) => current.map((post) => applyPostInteraction(post, id, action, result.bookmarked)));
+      }
+      setError("");
     } catch {
-      setError("Login is required for this action.");
+      setPosts((current) => current.map((post) => applyPostInteraction(post, id, action, previousActive)));
+      setError(action === "repost" ? "Login is required to repost." : "Login is required for this action.");
+    } finally {
+      setPendingActions((current) => {
+        const next = {
+          ...current,
+          [id]: {
+            ...current[id],
+            [action]: false,
+          },
+        };
+        if (!next[id]?.like && !next[id]?.bookmark && !next[id]?.repost) {
+          delete next[id];
+        }
+        return next;
+      });
     }
   };
 
@@ -156,8 +231,8 @@ export default function FeedPage() {
       });
       setEditingPost(null);
       await load();
-    } catch {
-      setError("Could not update post.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not update post.");
     }
   };
 
@@ -235,12 +310,21 @@ export default function FeedPage() {
 
   return (
     <Shell>
-      <section className="card p-4 page-enter">
-        <div className="mb-3 flex items-center justify-end">
-          <label className="inline-flex items-center gap-2 text-xs text-slate-400">
-            Sort
+      <section className="page-header page-enter">
+        <div className="page-header-bar feed-header-bar">
+          <div className="page-header-copy feed-header-copy">
+            <h1 className="page-title">Community updates</h1>
+            <p className="page-lead">
+              Fast-moving discussion belongs here first. Short operational updates, lessons learned, and follow-up comments stay in one readable stream.
+            </p>
+          </div>
+          <div className="feed-sort-control">
+            <label htmlFor="feed-sort" className="feed-sort-label">
+              Sort by
+            </label>
             <select
-              className="sort-select rounded-lg border border-line bg-bg px-2 py-1 text-xs text-slate-200 outline-none focus:border-accent"
+              id="feed-sort"
+              className="sort-select feed-sort-select"
               value={sort}
               onChange={(event) => setSort(event.target.value as FeedSort)}
             >
@@ -248,330 +332,335 @@ export default function FeedPage() {
               <option value="likes">Most Liked</option>
               <option value="comments">Most Commented</option>
             </select>
-          </label>
-        </div>
-
-        <form onSubmit={createPost}>
-          <textarea
-            className="input min-h-24"
-            placeholder="Share an incident lesson, IaC pattern, or deployment update..."
-            value={body}
-            maxLength={280}
-            onChange={(event) => setBody(event.target.value)}
-          />
-          <div className="mt-3 flex items-center justify-between text-sm text-slate-400">
-            <span>280 characters</span>
-            <button className="btn-positive-solid rounded-lg px-4 py-2 text-sm font-semibold">Post</button>
           </div>
-        </form>
-        {error ? <p className="mt-2 text-sm text-danger-soft">{error}</p> : null}
+        </div>
+      </section>
+
+      <section className="page-section page-enter">
+        <div className="space-y-4">
+          <div>
+            <h2 className="section-heading">Start a post</h2>
+            <p className="section-copy mt-1">Lead with the key operational detail so readers can decide quickly whether to open the full thread.</p>
+          </div>
+
+          <form className="space-y-4" onSubmit={createPost}>
+            <textarea
+              className="input min-h-32"
+              placeholder="Share an incident lesson, IaC pattern, or deployment update..."
+              value={body}
+              maxLength={POST_BODY_MAX_LENGTH}
+              onChange={(event) => setBody(event.target.value)}
+            />
+            <div className="form-actions">
+              <button className="btn-primary w-full sm:w-auto">Post</button>
+            </div>
+          </form>
+        </div>
+        {error ? <p className="mt-4 text-sm text-danger-soft">{error}</p> : null}
       </section>
 
       {feedLoading && posts.length === 0 ? (
-        <section className="card p-4 page-enter">
+        <section className="page-section page-enter">
           <PixelInfinityLoader label="Loading feed..." />
         </section>
       ) : null}
 
       {posts.map((post) => {
+        const subject = post.originalPost || post;
+        const postId = subject.id;
+        const isRepost = !!post.originalPost;
         const isAuthor = meId === post.author.id;
+        const canRepost = meId !== subject.author.id;
         const expanded = !!expandedPosts[post.id];
-        const preview = createPreview(post.body);
+        const preview = createTextPreview(subject.body);
         const showToggle = preview.truncated;
 
         return (
-          <article key={post.id} className="card p-4 page-enter">
-            <header className="flex items-start justify-between gap-3 text-sm text-slate-400">
-              <div>
-                <p className="font-semibold text-slate-100">@{post.author.username}</p>
-                <p className="text-xs">{new Date(post.createdAt).toLocaleString()}</p>
-              </div>
-
-              {isAuthor ? (
-                <div className="relative">
-                  <button
-                    type="button"
-                    onClick={() => setMenuFor(menuFor === post.id ? null : post.id)}
-                    className="rounded-lg border border-line px-2 py-1 text-xs"
-                  >
-                    ...
-                  </button>
-                  {menuFor === post.id ? (
-                    <div className="menu-pop absolute right-0 z-10 mt-2 w-32 rounded-lg border border-line bg-panel p-1">
-                      <button
-                        type="button"
-                        className="w-full rounded-md px-2 py-1 text-left text-xs hover:bg-slate-800"
-                        onClick={() => {
-                          setEditingPost({ id: post.id, body: post.body });
-                          setMenuFor(null);
-                        }}
-                      >
-                        Edit
-                      </button>
-                      <button
-                        type="button"
-                        className="w-full rounded-md px-2 py-1 text-left text-xs text-danger-soft hover:bg-slate-800"
-                        onClick={() => void removePost(post.id)}
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  ) : null}
-                </div>
-              ) : null}
-            </header>
-
+          <article key={post.id} className="page-enter">
             {editingPost?.id === post.id ? (
-              <div className="mt-3 space-y-2">
+              <div className="page-section space-y-3">
                 <textarea
-                  className="input min-h-24"
+                  className="input min-h-32"
                   value={editingPost.body}
+                  maxLength={POST_BODY_MAX_LENGTH}
                   onChange={(event) => setEditingPost({ id: post.id, body: event.target.value })}
                 />
-                <div className="flex gap-2 text-sm">
-                  <button type="button" className="rounded-lg border border-line px-3 py-1" onClick={() => void savePostEdit()}>
+                <div className="action-cluster">
+                  <button type="button" className="btn-primary" onClick={() => void savePostEdit()}>
                     Save
                   </button>
-                  <button type="button" className="rounded-lg border border-line px-3 py-1" onClick={() => setEditingPost(null)}>
+                  <button type="button" className="btn-secondary" onClick={() => setEditingPost(null)}>
                     Cancel
                   </button>
                 </div>
               </div>
             ) : (
-              <div className="mt-3">
-                <p className={`whitespace-pre-wrap text-base leading-7 text-slate-200 transition-all duration-200 ${expanded ? "max-h-[1200px]" : "max-h-64 overflow-hidden"}`}>
-                  {expanded ? post.body : preview.text}
-                </p>
-                {showToggle ? (
-                  <button
-                    type="button"
-                    className="mt-2 inline-flex items-center gap-1 text-sm text-accent"
-                    onClick={() => setExpandedPosts((prev) => ({ ...prev, [post.id]: !expanded }))}
-                  >
-                    {expanded ? "↑ Show less" : "↓ Show more"}
-                  </button>
-                ) : null}
-              </div>
-            )}
-
-            <div className="mt-2 flex flex-wrap gap-2 text-sm text-accent">
-              {post.tags.map((entry) => (
-                <span key={entry.tag.name} className="rounded-lg border border-line px-2 py-1">
-                  #{entry.tag.name}
-                </span>
-              ))}
-            </div>
-
-            <div className="mt-3 flex flex-wrap gap-2 text-sm">
-              <button className="inline-flex items-center gap-1 rounded-lg border border-line px-2 py-1" onClick={() => void interact(post.id, "like")}>
-                Like {post._count.likes}
-              </button>
-              <button className="inline-flex items-center gap-1 rounded-lg border border-line px-2 py-1" onClick={() => void interact(post.id, "bookmark")}>
-                Bookmark {post._count.bookmarks}
-              </button>
-              <span className="inline-flex items-center gap-1 rounded-lg border border-line px-2 py-1 text-slate-400">
-                Comments {post._count.comments}
-              </span>
-            </div>
-
-            <div className="mt-4 space-y-2 border-t border-line pt-3">
-              {commentsLoadingPostId === post.id ? (
-                <div className="mb-2">
-                  <PixelInfinityLoader compact label="Loading comments..." />
-                </div>
-              ) : null}
-
-              {post.comments.map((comment) => {
-                const canEdit = meId === comment.author.id;
-                const editingValue = editingComment[comment.id];
-                const replyOpen = !!replyOpenByComment[comment.id];
-                const replies = comment.replies || [];
-
-                return (
-                  <div key={comment.id} className="rounded-lg border border-line bg-bg p-3">
-                    <div className="flex items-start justify-between gap-2">
-                      <p className="text-sm text-slate-300">
-                        <span className="font-medium text-slate-100">@{comment.author.username}</span> {new Date(comment.createdAt).toLocaleString()}
-                      </p>
-                      {canEdit ? (
-                        <div className="flex gap-1 text-xs">
+              <PostCard
+                className="page-section"
+                post={toPostCardData(subject)}
+                context={
+                  isRepost
+                      ? {
+                          label: "Reposted by",
+                          username: post.author.username,
+                          verified: post.author.verified,
+                          createdAt: post.createdAt,
+                        }
+                      : undefined
+                }
+                headerAction={
+                  isAuthor ? (
+                    <div className="relative">
+                      <button
+                        type="button"
+                        onClick={() => setMenuFor(menuFor === post.id ? null : post.id)}
+                        className="icon-button-subtle"
+                        aria-label="Open post actions"
+                        title="Post actions"
+                      >
+                        <MoreHorizontalIcon size={16} />
+                      </button>
+                      {menuFor === post.id ? (
+                        <div className="menu-pop absolute right-0 z-10 mt-2 w-36 rounded-2xl border border-line bg-panel p-2">
+                          {!isRepost ? (
+                            <button
+                              type="button"
+                              className="w-full rounded-xl px-3 py-2 text-left text-sm hover:bg-slate-800"
+                              onClick={() => {
+                                setEditingPost({ id: post.id, body: post.body });
+                                setMenuFor(null);
+                              }}
+                            >
+                              Edit
+                            </button>
+                          ) : null}
                           <button
                             type="button"
-                            className="rounded-md border border-line px-2 py-1"
-                            onClick={() => setEditingComment((prev) => ({ ...prev, [comment.id]: comment.body }))}
+                            className={`${isRepost ? "" : "mt-1 "}w-full rounded-xl px-3 py-2 text-left text-sm text-danger-soft hover:bg-slate-800`}
+                            onClick={() => void removePost(post.id)}
                           >
-                            Edit
-                          </button>
-                          <button
-                            type="button"
-                            className="btn-danger rounded-md px-2 py-1"
-                            onClick={() => void deleteComment(comment.id, post.id)}
-                          >
-                            Delete
+                            {isRepost ? "Remove repost" : "Delete"}
                           </button>
                         </div>
                       ) : null}
                     </div>
+                  ) : null
+                }
+                body={expanded ? subject.body : preview.text}
+                bodyClassName={expanded ? "h-auto max-h-none overflow-visible" : "max-h-64 overflow-hidden"}
+                expanded={expanded}
+                showToggle={showToggle}
+                onToggleExpand={() => setExpandedPosts((prev) => ({ ...prev, [post.id]: !expanded }))}
+                onLike={() => void interact(postId, "like")}
+                onBookmark={() => void interact(postId, "bookmark")}
+                onRepost={canRepost ? () => void interact(postId, "repost") : undefined}
+                disabledActions={pendingActions[postId]}
+              >
+                <div className="mt-6 space-y-3 border-t border-line pt-5">
+                  {commentsLoadingPostId === postId ? (
+                    <div className="mb-2">
+                      <PixelInfinityLoader compact label="Loading comments..." />
+                    </div>
+                  ) : null}
 
-                    {editingValue !== undefined ? (
-                      <div className="mt-2 space-y-2">
-                        <textarea
-                          className="input min-h-20"
-                          value={editingValue}
-                          onChange={(event) =>
-                            setEditingComment((prev) => ({
-                              ...prev,
-                              [comment.id]: event.target.value,
-                            }))
-                          }
-                        />
-                        <div className="flex gap-2 text-xs">
-                          <button type="button" className="rounded-md border border-line px-2 py-1" onClick={() => void saveCommentEdit(comment.id, post.id)}>
-                            Save
-                          </button>
+                  {subject.comments.map((comment) => {
+                    const canEdit = meId === comment.author.id;
+                    const editingValue = editingComment[comment.id];
+                    const replyOpen = !!replyOpenByComment[comment.id];
+                    const replies = comment.replies || [];
+
+                    return (
+                        <div key={comment.id} className="subtle-panel p-4">
+                          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                            <p className="text-sm leading-6 text-slate-300">
+                              <UsernameInline className="font-medium text-slate-100" username={comment.author.username} verified={comment.author.verified} />{" "}
+                              {new Date(comment.createdAt).toLocaleString()}
+                            </p>
+                          {canEdit ? (
+                            <div className="flex flex-wrap gap-2 text-xs">
+                              <button
+                                type="button"
+                                className="btn-secondary min-h-0 px-3 py-2 text-xs"
+                                onClick={() => setEditingComment((prev) => ({ ...prev, [comment.id]: comment.body }))}
+                              >
+                                Edit
+                              </button>
+                              <button
+                                type="button"
+                                className="btn-danger min-h-0 px-3 py-2 text-xs"
+                                onClick={() => void deleteComment(comment.id, postId)}
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          ) : null}
+                        </div>
+
+                        {editingValue !== undefined ? (
+                          <div className="mt-3 space-y-3">
+                            <textarea
+                              className="input min-h-20"
+                              value={editingValue}
+                              onChange={(event) =>
+                                setEditingComment((prev) => ({
+                                  ...prev,
+                                  [comment.id]: event.target.value,
+                                }))
+                              }
+                            />
+                            <div className="action-cluster">
+                              <button type="button" className="btn-primary" onClick={() => void saveCommentEdit(comment.id, postId)}>
+                                Save
+                              </button>
+                              <button
+                                type="button"
+                                className="btn-secondary"
+                                onClick={() =>
+                                  setEditingComment((prev) => {
+                                    const next = { ...prev };
+                                    delete next[comment.id];
+                                    return next;
+                                  })
+                                }
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <p className="content-wrap mt-2 text-sm leading-6 text-slate-300">
+                            <AutoLinkedText text={comment.body} />
+                          </p>
+                        )}
+
+                        <div className="mt-3">
                           <button
                             type="button"
-                            className="rounded-md border border-line px-2 py-1"
+                            className="text-sm font-medium text-accent"
                             onClick={() =>
-                              setEditingComment((prev) => {
-                                const next = { ...prev };
-                                delete next[comment.id];
-                                return next;
-                              })
+                              setReplyOpenByComment((prev) => ({ ...prev, [comment.id]: !replyOpen }))
                             }
                           >
-                            Cancel
+                            {replyOpen ? "Cancel reply" : "Reply"}
                           </button>
                         </div>
-                      </div>
-                    ) : (
-                      <p className="mt-1 text-sm text-slate-300">{comment.body}</p>
-                    )}
 
-                    <div className="mt-2">
-                      <button
-                        type="button"
-                        className="text-xs text-accent"
-                        onClick={() =>
-                          setReplyOpenByComment((prev) => ({ ...prev, [comment.id]: !replyOpen }))
-                        }
-                      >
-                        {replyOpen ? "Cancel reply" : "Reply"}
-                      </button>
-                    </div>
+                        {replyOpen ? (
+                          <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-end">
+                            <input
+                              className="input"
+                              placeholder="Write a reply"
+                              value={replyByComment[comment.id] || ""}
+                              onChange={(event) =>
+                                setReplyByComment((prev) => ({ ...prev, [comment.id]: event.target.value }))
+                              }
+                            />
+                            <button
+                              type="button"
+                              className="btn-secondary w-full sm:w-auto"
+                              onClick={() => void addReply(postId, comment.id)}
+                            >
+                              Reply
+                            </button>
+                          </div>
+                        ) : null}
 
-                    {replyOpen ? (
-                      <div className="mt-2 flex gap-2">
-                        <input
-                          className="input"
-                          placeholder="Write a reply"
-                          value={replyByComment[comment.id] || ""}
-                          onChange={(event) =>
-                            setReplyByComment((prev) => ({ ...prev, [comment.id]: event.target.value }))
-                          }
-                        />
-                        <button
-                          type="button"
-                          className="rounded-lg border border-line px-3 py-2 text-sm"
-                          onClick={() => void addReply(post.id, comment.id)}
-                        >
-                          Reply
-                        </button>
-                      </div>
-                    ) : null}
-
-                    {replies.length > 0 ? (
-                      <div className="comment-thread mt-3 space-y-2">
-                        {replies.map((reply) => {
-                          const canEditReply = meId === reply.author.id;
-                          const editingReplyValue = editingComment[reply.id];
-                          return (
-                            <div key={reply.id} className="ml-2 rounded-lg border border-line bg-bg p-3">
-                              <div className="flex items-start justify-between gap-2">
-                                <p className="text-sm text-slate-300">
-                                  <span className="font-medium text-slate-100">@{reply.author.username}</span>{" "}
-                                  {new Date(reply.createdAt).toLocaleString()}
-                                </p>
-                                {canEditReply ? (
-                                  <div className="flex gap-1 text-xs">
-                                    <button
-                                      type="button"
-                                      className="rounded-md border border-line px-2 py-1"
-                                      onClick={() =>
-                                        setEditingComment((prev) => ({ ...prev, [reply.id]: reply.body }))
-                                      }
-                                    >
-                                      Edit
-                                    </button>
-                                    <button
-                                      type="button"
-                                      className="btn-danger rounded-md px-2 py-1"
-                                      onClick={() => void deleteComment(reply.id, post.id)}
-                                    >
-                                      Delete
-                                    </button>
+                        {replies.length > 0 ? (
+                          <div className="comment-thread mt-4 space-y-3">
+                            {replies.map((reply) => {
+                              const canEditReply = meId === reply.author.id;
+                              const editingReplyValue = editingComment[reply.id];
+                              return (
+                                <div key={reply.id} className="subtle-panel p-4 sm:ml-2">
+                                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                    <p className="text-sm leading-6 text-slate-300">
+                                      <UsernameInline className="font-medium text-slate-100" username={reply.author.username} verified={reply.author.verified} />{" "}
+                                      {new Date(reply.createdAt).toLocaleString()}
+                                    </p>
+                                    {canEditReply ? (
+                                      <div className="flex flex-wrap gap-2 text-xs">
+                                        <button
+                                          type="button"
+                                          className="btn-secondary min-h-0 px-3 py-2 text-xs"
+                                          onClick={() =>
+                                            setEditingComment((prev) => ({ ...prev, [reply.id]: reply.body }))
+                                          }
+                                        >
+                                          Edit
+                                        </button>
+                                        <button
+                                          type="button"
+                                          className="btn-danger min-h-0 px-3 py-2 text-xs"
+                                          onClick={() => void deleteComment(reply.id, postId)}
+                                        >
+                                          Delete
+                                        </button>
+                                      </div>
+                                    ) : null}
                                   </div>
-                                ) : null}
-                              </div>
-                              {editingReplyValue !== undefined ? (
-                                <div className="mt-2 space-y-2">
-                                  <textarea
-                                    className="input min-h-20"
-                                    value={editingReplyValue}
-                                    onChange={(event) =>
-                                      setEditingComment((prev) => ({
-                                        ...prev,
-                                        [reply.id]: event.target.value,
-                                      }))
-                                    }
-                                  />
-                                  <div className="flex gap-2 text-xs">
-                                    <button
-                                      type="button"
-                                      className="rounded-md border border-line px-2 py-1"
-                                      onClick={() => void saveCommentEdit(reply.id, post.id, comment.id)}
-                                    >
-                                      Save
-                                    </button>
-                                    <button
-                                      type="button"
-                                      className="rounded-md border border-line px-2 py-1"
-                                      onClick={() =>
-                                        setEditingComment((prev) => {
-                                          const next = { ...prev };
-                                          delete next[reply.id];
-                                          return next;
-                                        })
-                                      }
-                                    >
-                                      Cancel
-                                    </button>
-                                  </div>
+                                  {editingReplyValue !== undefined ? (
+                                    <div className="mt-3 space-y-3">
+                                      <textarea
+                                        className="input min-h-20"
+                                        value={editingReplyValue}
+                                        onChange={(event) =>
+                                          setEditingComment((prev) => ({
+                                            ...prev,
+                                            [reply.id]: event.target.value,
+                                          }))
+                                        }
+                                      />
+                                      <div className="action-cluster">
+                                        <button
+                                          type="button"
+                                          className="btn-primary"
+                                          onClick={() => void saveCommentEdit(reply.id, postId, comment.id)}
+                                        >
+                                          Save
+                                        </button>
+                                        <button
+                                          type="button"
+                                          className="btn-secondary"
+                                          onClick={() =>
+                                            setEditingComment((prev) => {
+                                              const next = { ...prev };
+                                              delete next[reply.id];
+                                              return next;
+                                            })
+                                          }
+                                        >
+                                          Cancel
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <p className="content-wrap mt-2 text-sm leading-6 text-slate-300">
+                                      <AutoLinkedText text={reply.body} />
+                                    </p>
+                                  )}
                                 </div>
-                              ) : (
-                                <p className="mt-1 text-sm text-slate-300">{reply.body}</p>
-                              )}
-                            </div>
-                          );
-                        })}
+                              );
+                            })}
+                          </div>
+                        ) : null}
                       </div>
-                    ) : null}
-                  </div>
-                );
-              })}
+                    );
+                  })}
 
-              <div className="flex gap-2">
-                <input
-                  className="input"
-                  placeholder="Add a comment"
-                  value={newCommentByPost[post.id] || ""}
-                  onChange={(event) => setNewCommentByPost((prev) => ({ ...prev, [post.id]: event.target.value }))}
-                />
-                <button type="button" className="rounded-lg border border-line px-3 py-2 text-sm" onClick={() => void addComment(post.id)}>
-                  Comment
-                </button>
-              </div>
-            </div>
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                    <input
+                      className="input"
+                      placeholder="Add a comment"
+                      value={newCommentByPost[postId] || ""}
+                      onChange={(event) => setNewCommentByPost((prev) => ({ ...prev, [postId]: event.target.value }))}
+                    />
+                    <button type="button" className="btn-secondary w-full sm:w-auto" onClick={() => void addComment(postId)}>
+                      Comment
+                    </button>
+                  </div>
+                </div>
+              </PostCard>
+            )}
           </article>
         );
       })}
@@ -579,28 +668,56 @@ export default function FeedPage() {
   );
 }
 
-function createPreview(content: string) {
-  const maxChars = 250;
-  const lines = content.split("\n");
-  const byLines = lines.slice(0, 10).join("\n");
-  const byChars = content.slice(0, maxChars);
-  const truncatedByChars = content.length > maxChars;
-  const truncatedByLines = lines.length > 10;
-
-  if (truncatedByChars && truncatedByLines) {
-    const text = byLines.length < byChars.length ? byLines : `${byChars}...`;
-    return { text, truncated: true };
-  }
-
-  if (truncatedByLines) return { text: `${byLines}...`, truncated: true };
-  if (truncatedByChars) return { text: `${byChars}...`, truncated: true };
-  return { text: content, truncated: false };
-}
-
 function parseReplyBody(body: string) {
   const match = body.match(/^@reply:([a-zA-Z0-9_-]+)\n([\s\S]*)$/);
   if (!match) return { parentId: null as string | null, text: body };
   return { parentId: match[1], text: match[2] };
+}
+
+function hydrateFeedPostContent(post: FeedPostContent): FeedPostContent {
+  return {
+    ...post,
+    comments: buildThreadedComments(post.comments || []),
+  };
+}
+
+function hydrateFeedItem(post: FeedItem): FeedItem {
+  return {
+    ...hydrateFeedPostContent(post),
+    originalPost: post.originalPost ? hydrateFeedPostContent(post.originalPost) : null,
+  };
+}
+
+function getInteractionState(posts: FeedItem[], targetId: string, action: PostActionType) {
+  const subject = posts
+    .map((post) => (post.id === targetId ? post : post.originalPost?.id === targetId ? post.originalPost : null))
+    .find(Boolean);
+
+  if (!subject) {
+    return false;
+  }
+
+  if (action === "like") return subject.viewer.liked;
+  if (action === "bookmark") return subject.viewer.bookmarked;
+  return subject.viewer.reposted;
+}
+
+function updateFeedItemViewCount(post: FeedItem, targetId: string, viewCount: number): FeedItem {
+  if (post.id === targetId) {
+    return { ...post, viewCount };
+  }
+
+  if (post.originalPost?.id === targetId) {
+    return {
+      ...post,
+      originalPost: {
+        ...post.originalPost,
+        viewCount,
+      },
+    };
+  }
+
+  return post;
 }
 
 function buildThreadedComments(comments: FeedComment[]) {

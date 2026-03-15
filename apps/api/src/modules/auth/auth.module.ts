@@ -2,10 +2,13 @@ import { Module } from "@nestjs/common";
 import { ConfigModule, ConfigService } from "@nestjs/config";
 import { JwtModule } from "@nestjs/jwt";
 import { PassportModule } from "@nestjs/passport";
-import { PrismaService } from "../../prisma.service";
+import { resolveJwtSecret } from "../../common/auth-config";
 import { AuthController } from "./auth.controller";
 import { AuthService } from "./auth.service";
+import { CaptchaService } from "./captcha.service";
+import { EmailValidationService } from "./email-validation.service";
 import { JwtStrategy } from "./jwt.strategy";
+import { MailerService } from "./mailer.service";
 
 @Module({
   imports: [
@@ -14,13 +17,13 @@ import { JwtStrategy } from "./jwt.strategy";
     JwtModule.registerAsync({
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
-        secret: configService.get<string>("JWT_SECRET") || "replace-me",
+        secret: resolveJwtSecret(configService),
         signOptions: { expiresIn: "24h" },
       }),
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, PrismaService, JwtStrategy],
-  exports: [AuthService, JwtModule],
+  providers: [AuthService, CaptchaService, EmailValidationService, JwtStrategy, MailerService],
+  exports: [AuthService, CaptchaService, EmailValidationService, JwtModule, MailerService],
 })
 export class AuthModule {}

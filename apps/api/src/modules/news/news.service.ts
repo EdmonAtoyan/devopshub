@@ -29,9 +29,14 @@ export class NewsService {
 
     const results = await Promise.allSettled(this.feeds.map((feed) => this.loadFeed(feed.url, feed.source)));
 
-    const items = results
-      .filter((result): result is PromiseFulfilledResult<NewsItem[]> => result.status === "fulfilled")
-      .flatMap((result) => result.value)
+    const items = Array.from(
+      new Map(
+        results
+          .filter((result): result is PromiseFulfilledResult<NewsItem[]> => result.status === "fulfilled")
+          .flatMap((result) => result.value)
+          .map((item) => [item.link, item]),
+      ).values(),
+    )
       .sort((a, b) => {
         const left = a.publishedAt ? new Date(a.publishedAt).getTime() : 0;
         const right = b.publishedAt ? new Date(b.publishedAt).getTime() : 0;
@@ -52,6 +57,7 @@ export class NewsService {
       headers: {
         "User-Agent": "DevOpsHubNewsBot/1.0",
       },
+      signal: AbortSignal.timeout(5_000),
     });
 
     if (!response.ok) return [];

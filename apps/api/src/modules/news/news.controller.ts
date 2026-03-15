@@ -1,4 +1,5 @@
 import { Controller, Get, Query } from "@nestjs/common";
+import { clampInt } from "../../common/query";
 import { NewsService } from "./news.service";
 
 @Controller("news")
@@ -7,8 +8,6 @@ export class NewsController {
 
   @Get()
   latest(@Query("limit") limit?: string) {
-    const parsed = Number(limit);
-    const finalLimit = Number.isFinite(parsed) && parsed > 0 ? Math.min(parsed, 20) : 8;
-    return this.newsService.latest(finalLimit);
+    return this.newsService.latest(clampInt(limit, 1, 20, 8));
   }
 }

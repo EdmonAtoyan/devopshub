@@ -10,7 +10,6 @@ export default [
       "**/coverage/**",
       "**/*.d.ts",
       "apps/web/tsconfig.tsbuildinfo",
-      "devops-hub-platform/**",
       "legacy/**",
       "prisma/migrations/**",
       "uploads/**",
