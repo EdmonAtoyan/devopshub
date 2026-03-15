@@ -46,6 +46,10 @@ export class MailerService {
         `Email delivery failed via ${provider.kind} to ${message.to}: ${message.subject}`,
         error instanceof Error ? error.stack : undefined,
       );
+      const hint = this.describeDeliveryFailure(provider.kind, error);
+      if (hint) {
+        this.logger.error(hint);
+      }
       throw new InternalServerErrorException("Email delivery failed");
     }
   }
@@ -172,6 +176,21 @@ export class MailerService {
     if (configured === "true" || configured === "1") return true;
     if (configured === "false" || configured === "0") return false;
     return port === 465;
+  }
+
+  private describeDeliveryFailure(providerKind: MailProvider["kind"], error: unknown) {
+    if (!(error instanceof Error)) return null;
+
+    const message = error.message || "";
+    if (providerKind === "smtp" && /(?:5\.7\.8|BadCredentials|Username and Password not accepted)/i.test(message)) {
+      return "SMTP authentication failed. If you are using Gmail, set SMTP_PASS to a Gmail App Password and recreate the api container.";
+    }
+
+    if (providerKind === "smtp" && /(?:ECONNECTION|ETIMEDOUT|ENOTFOUND|ESOCKET)/i.test(message)) {
+      return "SMTP connection failed. Check outbound network access, SMTP host/port values, and any EC2 firewall or provider restrictions.";
+    }
+
+    return null;
   }
 
   private logPreview(message: MailMessage) {
