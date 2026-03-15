@@ -1,0 +1,13 @@
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+node_modules
+**/node_modules
+apps/web/.next
+apps/api/dist
+coverage
+uploads
+legacy/devops_social.db
+npm-debug.log*

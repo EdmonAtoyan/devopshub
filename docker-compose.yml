@@ -22,5 +22,65 @@ services:
     ports:
       - "6379:6379"
 
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-devops}:${POSTGRES_PASSWORD:-devops}@postgres:5432/${POSTGRES_DB:-devopshub}?schema=public
+      REDIS_HOST: redis
+      REDIS_URL: redis://redis:6379
+      API_PORT: 4000
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set in .env}
+      NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-http://localhost:3000}
+      RESET_PASSWORD_BASE_URL: ${RESET_PASSWORD_BASE_URL:-http://localhost:3000}
+      EMAIL_VERIFICATION_BASE_URL: ${EMAIL_VERIFICATION_BASE_URL:-http://localhost:3000}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
+      NODE_ENV: production
+    ports:
+      - "4000:4000"
+    volumes:
+      - uploads_data:/app/uploads
+    command: >
+      sh -c "npm run db:generate &&
+      npm exec -- prisma migrate deploy --schema ../../prisma/schema.prisma &&
+      npm run start"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "node -e \"fetch('http://127.0.0.1:4000/api/health').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))\"",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        API_UPSTREAM_URL: http://api:4000
+        NEXT_PUBLIC_API_URL: /api
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      PORT: 3000
+      API_UPSTREAM_URL: http://api:4000
+      NEXT_PUBLIC_API_URL: /api
+      NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-http://localhost:3000}
+      NODE_ENV: production
+    ports:
+      - "3000:3000"
+
 volumes:
   postgres_data:
+  uploads_data:
