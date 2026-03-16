@@ -115,7 +115,7 @@ export default function LoginPage() {
               </Link>
             </p>
           ) : null}
-          <div className="form-actions">
+          <div className="form-actions border-0 pt-0">
             <Link href="/forgot-password" className="text-sm text-slate-400 hover:text-slate-100">
               Forgot password?
             </Link>
