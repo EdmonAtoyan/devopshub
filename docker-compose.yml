@@ -52,6 +52,7 @@ services:
       SMTP_PASS: ${SMTP_PASS}
       SMTP_FROM: ${SMTP_FROM}
       SMTP_REPLY_TO: ${SMTP_REPLY_TO:-}
+      GIPHY_API_KEY: ${GIPHY_API_KEY:-}
       NODE_ENV: production
     ports:
       - "4000:4000"

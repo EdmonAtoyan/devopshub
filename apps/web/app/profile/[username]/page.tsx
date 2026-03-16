@@ -84,6 +84,7 @@ export default function ProfilePage() {
   const [isFollowing, setIsFollowing] = useState(false);
   const [followLoading, setFollowLoading] = useState(false);
   const [pendingActions, setPendingActions] = useState<Record<string, Partial<Record<PostActionType, boolean>>>>({});
+  const showGifs = me?.showGifs !== false;
 
   const loadMe = async () => {
     try {
@@ -521,6 +522,7 @@ export default function ProfilePage() {
                         key={post.id}
                         className="subtle-panel p-5"
                         post={toPostCardData(subject)}
+                        showGifs={showGifs}
                         context={
                           post.originalPost
                             ? {
@@ -572,6 +574,7 @@ export default function ProfilePage() {
                         key={entry.post.id}
                         className="subtle-panel p-5"
                         post={toPostCardData(subject)}
+                        showGifs={showGifs}
                         context={
                           entry.post.originalPost
                             ? {

@@ -10,6 +10,7 @@ import { DragEvent, FormEvent, useEffect, useId, useState } from "react";
 type ProfileSettings = {
   id: string;
   username: string;
+  showGifs?: boolean;
   verified?: boolean;
   email: string;
   name: string;
@@ -24,6 +25,7 @@ export default function SettingsPage() {
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [bio, setBio] = useState("");
+  const [showGifs, setShowGifs] = useState(true);
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -38,6 +40,7 @@ export default function SettingsPage() {
   const [isDragOver, setIsDragOver] = useState(false);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
   const avatarInputId = useId();
+  const showGifsInputId = useId();
 
   useEffect(() => {
     if (!avatarFile) {
@@ -57,6 +60,7 @@ export default function SettingsPage() {
       setUsername(data.username || "");
       setEmail(data.email || "");
       setBio(data.bio || "");
+      setShowGifs(data.showGifs !== false);
       setError("");
     } catch {
       setError("Login required to access settings.");
@@ -95,7 +99,7 @@ export default function SettingsPage() {
     try {
       const updated = await apiRequest<ProfileSettings>("users/me/profile", {
         method: "PATCH",
-        body: JSON.stringify({ username, email, bio }),
+        body: JSON.stringify({ username, email, bio, showGifs }),
       });
       if (updated.requiresEmailVerification) {
         router.push(`/verify-email?email=${encodeURIComponent(updated.email)}&sent=1`);
@@ -103,6 +107,7 @@ export default function SettingsPage() {
         return;
       }
       setProfile(updated);
+      setShowGifs(updated.showGifs !== false);
       setMessage("Profile updated.");
       setError("");
     } catch (err) {
@@ -284,6 +289,25 @@ export default function SettingsPage() {
             <label className="field-label">
               Bio
               <textarea className="input mt-1 min-h-32" value={bio} onChange={(event) => setBio(event.target.value)} />
+            </label>
+
+            <label
+              htmlFor={showGifsInputId}
+              className="flex cursor-pointer items-start gap-3 rounded-2xl border border-line bg-bg/60 px-4 py-4"
+            >
+              <input
+                id={showGifsInputId}
+                type="checkbox"
+                checked={showGifs}
+                onChange={(event) => setShowGifs(event.target.checked)}
+                className="mt-1 h-4 w-4 accent-[rgb(var(--accent))]"
+              />
+              <span className="space-y-1">
+                <span className="block text-sm font-medium text-slate-200">Play GIFs automatically</span>
+                <span className="block text-xs leading-6 text-slate-500">
+                  When disabled, GIFs stay hidden behind a &quot;GIF reaction Show&quot; placeholder until you reveal them.
+                </span>
+              </span>
             </label>
 
             <div className="form-actions">

@@ -1,12 +1,14 @@
 "use client";
 
 import { AutoLinkedText } from "@/components/auto-linked-text";
+import { GifAttachment } from "@/components/gif-attachment";
 import { PostCard } from "@/components/post-card";
 import { PixelInfinityLoader } from "@/components/pixel-infinity-loader";
 import { Shell } from "@/components/shell";
 import { UsernameInline } from "@/components/verified-badge";
 import { apiRequest } from "@/lib/api";
 import { getCurrentUser, type CurrentUser } from "@/lib/auth";
+import { toGifAttachment } from "@/lib/gifs";
 import { applyPostInteraction, type PostActionType, type PostViewerState, toPostCardData } from "@/lib/posts";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
@@ -15,6 +17,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 type FeedComment = {
   id: string;
   body: string;
+  gifUrl?: string | null;
+  gifAlt?: string | null;
   createdAt: string;
   parentId?: string | null;
   author: { id: string; username: string; verified?: boolean; name: string };
@@ -24,6 +28,8 @@ type FeedComment = {
 type FeedPostContent = {
   id: string;
   body: string;
+  gifUrl?: string | null;
+  gifAlt?: string | null;
   createdAt: string;
   viewCount: number;
   author: { id: string; username: string; verified?: boolean; name: string };
@@ -48,6 +54,7 @@ export default function FeedPostPage() {
   const [pendingActions, setPendingActions] = useState<Partial<Record<PostActionType, boolean>>>({});
   const trackedViewRef = useRef(false);
   const meId = me?.id ?? "";
+  const showGifs = me?.showGifs !== false;
 
   useEffect(() => {
     trackedViewRef.current = false;
@@ -184,6 +191,7 @@ export default function FeedPostPage() {
       <PostCard
         className="page-section page-enter"
         post={toPostCardData(subject, commentCount)}
+        showGifs={showGifs}
         context={
           post.originalPost
             ? {
@@ -208,7 +216,9 @@ export default function FeedPostPage() {
           {subject.comments.length === 0 ? (
             <p className="subtle-panel text-sm text-slate-400">No comments yet.</p>
           ) : (
-            subject.comments.map((comment) => <CommentThread key={comment.id} comment={comment} />)
+            subject.comments.map((comment) => (
+              <CommentThread key={comment.id} comment={comment} showGifs={showGifs} />
+            ))
           )}
         </div>
       </PostCard>
@@ -216,7 +226,9 @@ export default function FeedPostPage() {
   );
 }
 
-function CommentThread({ comment }: { comment: FeedComment }) {
+function CommentThread({ comment, showGifs }: { comment: FeedComment; showGifs: boolean }) {
+  const commentGif = toGifAttachment(comment);
+
   return (
     <div className="subtle-panel p-4">
       <p className="text-sm leading-6 text-slate-300">
@@ -226,20 +238,26 @@ function CommentThread({ comment }: { comment: FeedComment }) {
       <p className="content-wrap mt-2 text-sm leading-6 text-slate-300">
         <AutoLinkedText text={comment.body} />
       </p>
+      {commentGif ? <GifAttachment gif={commentGif} showByDefault={showGifs} className="mt-3" /> : null}
 
       {comment.replies?.length ? (
         <div className="comment-thread mt-4 space-y-3">
-          {comment.replies.map((reply) => (
-            <div key={reply.id} className="subtle-panel p-4 sm:ml-2">
-              <p className="text-sm leading-6 text-slate-300">
-                <UsernameInline className="font-medium text-slate-100" username={reply.author.username} verified={reply.author.verified} />{" "}
-                {new Date(reply.createdAt).toLocaleString()}
-              </p>
-              <p className="content-wrap mt-2 text-sm leading-6 text-slate-300">
-                <AutoLinkedText text={reply.body} />
-              </p>
-            </div>
-          ))}
+          {comment.replies.map((reply) => {
+            const replyGif = toGifAttachment(reply);
+
+            return (
+              <div key={reply.id} className="subtle-panel p-4 sm:ml-2">
+                <p className="text-sm leading-6 text-slate-300">
+                  <UsernameInline className="font-medium text-slate-100" username={reply.author.username} verified={reply.author.verified} />{" "}
+                  {new Date(reply.createdAt).toLocaleString()}
+                </p>
+                <p className="content-wrap mt-2 text-sm leading-6 text-slate-300">
+                  <AutoLinkedText text={reply.body} />
+                </p>
+                {replyGif ? <GifAttachment gif={replyGif} showByDefault={showGifs} className="mt-3" /> : null}
+              </div>
+            );
+          })}
         </div>
       ) : null}
     </div>

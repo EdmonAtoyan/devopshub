@@ -41,6 +41,8 @@ export function GifPickerPopover({
   const panelRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const panelId = useId();
+  const trimmedQuery = query.trim();
+  const emptyMessage = trimmedQuery ? "No GIFs matched that search." : "Search for a GIF to begin.";
 
   useEffect(() => {
     if (!open) {
@@ -133,7 +135,7 @@ export function GifPickerPopover({
     setError("");
 
     const timer = window.setTimeout(() => {
-      const path = `search/gifs?q=${encodeURIComponent(query.trim())}&limit=18`;
+      const path = `search/gifs?q=${encodeURIComponent(trimmedQuery)}&limit=20`;
 
       void apiRequest<GifSearchResponse>(path)
         .then((response) => {
@@ -161,7 +163,7 @@ export function GifPickerPopover({
       active = false;
       window.clearTimeout(timer);
     };
-  }, [open, query]);
+  }, [open, trimmedQuery]);
 
   if (!open || !position || typeof document === "undefined") {
     return null;
@@ -196,12 +198,12 @@ export function GifPickerPopover({
 
       <div className="gif-picker-results">
         {!configured ? (
-          <p className="gif-picker-empty">GIF search is unavailable until `TENOR_API_KEY` is configured.</p>
+          <p className="gif-picker-empty">GIF search is unavailable until `GIPHY_API_KEY` is configured.</p>
         ) : null}
         {configured && loading ? <p className="gif-picker-empty">Loading GIFs...</p> : null}
         {configured && !loading && error ? <p className="gif-picker-empty">{error}</p> : null}
         {configured && !loading && !error && results.length === 0 ? (
-          <p className="gif-picker-empty">No GIFs matched that search.</p>
+          <p className="gif-picker-empty">{emptyMessage}</p>
         ) : null}
         {configured && !loading && !error ? (
           <div className="gif-picker-grid">
@@ -229,7 +231,7 @@ export function GifPickerPopover({
         ) : null}
       </div>
 
-      <div className="gif-picker-footer">Powered by Tenor</div>
+      <div className="gif-picker-footer">Powered by GIPHY</div>
     </div>,
     document.body,
   );

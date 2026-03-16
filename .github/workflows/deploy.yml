@@ -18,11 +18,12 @@ jobs:
         env:
           GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          GIPHY_API_KEY: ${{ secrets.GIPHY_API_KEY }}
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_KEY }}
-          envs: GOOGLE_CLIENT_ID,GOOGLE_CLIENT_SECRET
+          envs: GOOGLE_CLIENT_ID,GOOGLE_CLIENT_SECRET,GIPHY_API_KEY
           script: |
             cd ~/devopshub
             backup_env="$(mktemp)"
@@ -38,20 +39,25 @@ jobs:
               cp "$backup_env" .env
             fi
             rm -f "$backup_env"
+            upsert_env() {
+              key="$1"
+              value="$2"
+              if grep -q "^${key}=" .env; then
+                sed -i "s|^${key}=.*|${key}=\"${value}\"|" .env
+              else
+                printf '%s=\"%s\"\n' "$key" "$value" >> .env
+              fi
+            }
             if [ -n "$GOOGLE_CLIENT_ID" ] && [ -n "$GOOGLE_CLIENT_SECRET" ]; then
-              upsert_env() {
-                key="$1"
-                value="$2"
-                if grep -q "^${key}=" .env; then
-                  sed -i "s|^${key}=.*|${key}=\"${value}\"|" .env
-                else
-                  printf '%s=\"%s\"\n' "$key" "$value" >> .env
-                fi
-              }
               upsert_env GOOGLE_CLIENT_ID "$GOOGLE_CLIENT_ID"
               upsert_env GOOGLE_CLIENT_SECRET "$GOOGLE_CLIENT_SECRET"
             else
               echo "GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET is not set in GitHub Actions secrets; skipping Google OAuth env injection."
+            fi
+            if [ -n "$GIPHY_API_KEY" ]; then
+              upsert_env GIPHY_API_KEY "$GIPHY_API_KEY"
+            else
+              echo "GIPHY_API_KEY is not set in GitHub Actions secrets; skipping Giphy env injection."
             fi
             docker compose down
             docker compose up -d --build

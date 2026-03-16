@@ -126,6 +126,7 @@ export function Shell({ children }: { children: ReactNode }) {
   const mobileNotificationsRef = useRef<HTMLDivElement | null>(null);
   const profileMenuRef = useRef<HTMLDivElement | null>(null);
   const mobileOverlayOpen = notificationsOpen || profileMenuOpen || mobileNavOpen;
+  const showGifs = me?.showGifs !== false;
 
   const loadNotifications = useCallback(async () => {
     if (!me) {
@@ -475,6 +476,7 @@ export function Shell({ children }: { children: ReactNode }) {
                   className="subtle-panel m-1 p-3"
                   variant="compact"
                   post={toPostCardData(subject)}
+                  showGifs={showGifs}
                   context={
                     post.originalPost
                       ? {
@@ -986,6 +988,7 @@ export function Shell({ children }: { children: ReactNode }) {
                           className="subtle-panel p-3"
                           variant="compact"
                           post={toPostCardData(subject)}
+                          showGifs={showGifs}
                           context={
                             post.originalPost
                               ? {
