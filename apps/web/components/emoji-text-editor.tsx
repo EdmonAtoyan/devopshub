@@ -3,7 +3,8 @@
 import { SmileIcon } from "@/components/icons";
 import { apiRequest } from "@/lib/api";
 import type { ChangeEventHandler, FocusEventHandler } from "react";
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 type EmojiPickerModule = typeof import("emoji-picker-react");
 type EditorElement = HTMLInputElement | HTMLTextAreaElement;
@@ -17,6 +18,12 @@ type MentionMatch = {
   start: number;
   end: number;
   query: string;
+};
+type PickerPosition = {
+  top: number;
+  left: number;
+  width: number;
+  height: number;
 };
 
 type EmojiTextEditorProps = {
@@ -36,6 +43,10 @@ type EmojiTextEditorProps = {
 
 const VALID_MENTION_CHAR = /[a-z0-9._-]/i;
 const MENTION_TRIGGER_PATTERN = /(^|[\s([{"'<])@([a-z0-9._-]*)$/i;
+const PICKER_GAP = 12;
+const PICKER_MARGIN = 16;
+const PICKER_MAX_WIDTH = 320;
+const PICKER_MAX_HEIGHT = 340;
 
 export function EmojiTextEditor({
   value,
@@ -53,11 +64,14 @@ export function EmojiTextEditor({
 }: EmojiTextEditorProps) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerModule, setPickerModule] = useState<EmojiPickerModule | null>(null);
+  const [pickerPosition, setPickerPosition] = useState<PickerPosition | null>(null);
   const [mentionMatch, setMentionMatch] = useState<MentionMatch | null>(null);
   const [mentionSuggestions, setMentionSuggestions] = useState<MentionSuggestion[]>([]);
   const [mentionLoading, setMentionLoading] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<EditorElement | null>(null);
+  const pickerRef = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
   const selectionRef = useRef({ start: value.length, end: value.length });
   const pickerId = useId();
 
@@ -85,7 +99,10 @@ export function EmojiTextEditor({
     }
 
     const handlePointerDown = (event: MouseEvent) => {
-      if (containerRef.current?.contains(event.target as Node)) {
+      if (
+        containerRef.current?.contains(event.target as Node) ||
+        pickerRef.current?.contains(event.target as Node)
+      ) {
         return;
       }
 
@@ -113,6 +130,46 @@ export function EmojiTextEditor({
       document.removeEventListener("keydown", handleKeyDown);
     };
   }, [mentionMatch, pickerOpen]);
+
+  useLayoutEffect(() => {
+    if (!pickerOpen) {
+      setPickerPosition(null);
+      return;
+    }
+
+    const updatePickerPosition = () => {
+      const trigger = triggerRef.current;
+
+      if (!trigger) {
+        return;
+      }
+
+      const rect = trigger.getBoundingClientRect();
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
+      const width = Math.min(PICKER_MAX_WIDTH, Math.max(0, viewportWidth - PICKER_MARGIN * 2));
+      const height = Math.min(PICKER_MAX_HEIGHT, Math.max(0, viewportHeight - PICKER_MARGIN * 2));
+      const maxLeft = Math.max(PICKER_MARGIN, viewportWidth - width - PICKER_MARGIN);
+      const maxTop = Math.max(PICKER_MARGIN, viewportHeight - height - PICKER_MARGIN);
+
+      setPickerPosition({
+        left: clamp(rect.right - width, PICKER_MARGIN, maxLeft),
+        top: clamp(rect.top - height - PICKER_GAP, PICKER_MARGIN, maxTop),
+        width,
+        height,
+      });
+    };
+
+    updatePickerPosition();
+
+    window.addEventListener("resize", updatePickerPosition);
+    window.addEventListener("scroll", updatePickerPosition, true);
+
+    return () => {
+      window.removeEventListener("resize", updatePickerPosition);
+      window.removeEventListener("scroll", updatePickerPosition, true);
+    };
+  }, [pickerOpen]);
 
   useEffect(() => {
     if (!enableMentions || !mentionMatch) {
@@ -264,6 +321,41 @@ export function EmojiTextEditor({
 
   const EmojiPicker = pickerModule?.default;
   const showMentionSuggestions = enableMentions && mentionMatch && (mentionLoading || mentionSuggestions.length > 0);
+  const pickerPortal =
+    pickerOpen && pickerPosition && typeof document !== "undefined"
+      ? createPortal(
+          <div
+            ref={pickerRef}
+            id={pickerId}
+            className="emoji-picker-popover emoji-picker-popover-portal menu-pop"
+            role="dialog"
+            aria-label="Emoji picker"
+            style={{
+              top: pickerPosition.top,
+              left: pickerPosition.left,
+              width: pickerPosition.width,
+              maxHeight: pickerPosition.height,
+            }}
+          >
+            {pickerModule && EmojiPicker ? (
+              <EmojiPicker
+                onEmojiClick={(emojiData) => insertEmoji(emojiData.emoji)}
+                emojiStyle={pickerModule.EmojiStyle.NATIVE}
+                theme={pickerModule.Theme.DARK}
+                lazyLoadEmojis
+                searchDisabled
+                skinTonesDisabled
+                previewConfig={{ showPreview: false }}
+                width="100%"
+                height={pickerPosition.height}
+              />
+            ) : (
+              <div className="emoji-picker-loading">Loading emojis...</div>
+            )}
+          </div>,
+          document.body,
+        )
+      : null;
 
   const sharedProps = {
     className: `${className} emoji-editor-field`.trim(),
@@ -282,85 +374,70 @@ export function EmojiTextEditor({
   };
 
   return (
-    <div ref={containerRef} className="emoji-editor">
-      {multiline ? (
-        <textarea
-          ref={(node) => {
-            inputRef.current = node;
+    <>
+      <div ref={containerRef} className="emoji-editor">
+        {multiline ? (
+          <textarea
+            ref={(node) => {
+              inputRef.current = node;
+            }}
+            rows={rows}
+            {...sharedProps}
+          />
+        ) : (
+          <input
+            ref={(node) => {
+              inputRef.current = node;
+            }}
+            type="text"
+            {...sharedProps}
+          />
+        )}
+
+        <button
+          ref={triggerRef}
+          type="button"
+          className={`emoji-trigger ${multiline ? "emoji-trigger-multiline" : ""} ${pickerOpen ? "is-open" : ""}`.trim()}
+          aria-label="Insert emoji"
+          aria-expanded={pickerOpen}
+          aria-controls={pickerOpen ? pickerId : undefined}
+          title="Insert emoji"
+          onMouseDown={(event) => {
+            event.preventDefault();
+            rememberSelection();
           }}
-          rows={rows}
-          {...sharedProps}
-        />
-      ) : (
-        <input
-          ref={(node) => {
-            inputRef.current = node;
+          onClick={() => {
+            setMentionMatch(null);
+            setMentionSuggestions([]);
+            setPickerOpen((current) => !current);
           }}
-          type="text"
-          {...sharedProps}
-        />
-      )}
+        >
+          <SmileIcon size={18} />
+        </button>
 
-      <button
-        type="button"
-        className={`emoji-trigger ${multiline ? "emoji-trigger-multiline" : ""} ${pickerOpen ? "is-open" : ""}`.trim()}
-        aria-label="Insert emoji"
-        aria-expanded={pickerOpen}
-        aria-controls={pickerOpen ? pickerId : undefined}
-        title="Insert emoji"
-        onMouseDown={(event) => {
-          event.preventDefault();
-          rememberSelection();
-        }}
-        onClick={() => {
-          setMentionMatch(null);
-          setMentionSuggestions([]);
-          setPickerOpen((current) => !current);
-        }}
-      >
-        <SmileIcon size={18} />
-      </button>
+        {showMentionSuggestions ? (
+          <div className="mention-suggestions menu-pop" role="listbox" aria-label="Mention suggestions">
+            {mentionSuggestions.map((suggestion) => (
+              <button
+                key={suggestion.id}
+                type="button"
+                className="mention-suggestion"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => insertMention(suggestion)}
+              >
+                <span className="mention-suggestion-copy">
+                  <span className="mention-suggestion-username">@{suggestion.username}</span>
+                  <span className="mention-suggestion-name">{suggestion.name}</span>
+                </span>
+              </button>
+            ))}
+            {mentionLoading ? <div className="mention-suggestion-empty">Searching users...</div> : null}
+          </div>
+        ) : null}
+      </div>
 
-      {showMentionSuggestions ? (
-        <div className="mention-suggestions menu-pop" role="listbox" aria-label="Mention suggestions">
-          {mentionSuggestions.map((suggestion) => (
-            <button
-              key={suggestion.id}
-              type="button"
-              className="mention-suggestion"
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => insertMention(suggestion)}
-            >
-              <span className="mention-suggestion-copy">
-                <span className="mention-suggestion-username">@{suggestion.username}</span>
-                <span className="mention-suggestion-name">{suggestion.name}</span>
-              </span>
-            </button>
-          ))}
-          {mentionLoading ? <div className="mention-suggestion-empty">Searching users...</div> : null}
-        </div>
-      ) : null}
-
-      {pickerOpen ? (
-        <div id={pickerId} className="emoji-picker-popover menu-pop" role="dialog" aria-label="Emoji picker">
-          {pickerModule && EmojiPicker ? (
-            <EmojiPicker
-              onEmojiClick={(emojiData) => insertEmoji(emojiData.emoji)}
-              emojiStyle={pickerModule.EmojiStyle.NATIVE}
-              theme={pickerModule.Theme.DARK}
-              lazyLoadEmojis
-              searchDisabled
-              skinTonesDisabled
-              previewConfig={{ showPreview: false }}
-              width="100%"
-              height={340}
-            />
-          ) : (
-            <div className="emoji-picker-loading">Loading emojis...</div>
-          )}
-        </div>
-      ) : null}
-    </div>
+      {pickerPortal}
+    </>
   );
 }
 
@@ -408,4 +485,8 @@ function sortMentionSuggestions(users: MentionSuggestion[], query: string) {
   };
 
   return [...users].sort((left, right) => score(right) - score(left) || left.username.localeCompare(right.username));
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
 }

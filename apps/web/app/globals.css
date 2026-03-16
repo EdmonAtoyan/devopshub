@@ -243,15 +243,20 @@ html[data-theme="dark"] .global-loader-logo {
 }
 
 .emoji-picker-popover {
-  @apply absolute right-0 top-full z-30 mt-2 overflow-hidden rounded-2xl border border-line;
-  width: min(20rem, calc(100vw - 2rem));
+  @apply overflow-hidden rounded-2xl border border-line;
   background: rgb(var(--panel));
   box-shadow: 0 22px 44px rgb(2 6 23 / 0.4);
 }
 
+.emoji-picker-popover-portal {
+  position: fixed;
+  z-index: 80;
+  transform-origin: bottom right;
+}
+
 .emoji-picker-loading {
   @apply flex items-center justify-center px-4 py-6 text-sm text-slate-400;
-  min-height: 12rem;
+  min-height: min(12rem, calc(100vh - 2rem));
 }
 
 .mention-suggestions {
