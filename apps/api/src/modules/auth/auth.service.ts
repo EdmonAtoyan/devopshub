@@ -18,6 +18,7 @@ import {
   ResetPasswordDto,
   VerifyEmailDto,
 } from "./dto";
+import type { GoogleAuthUser } from "./google.strategy";
 import { MailerService } from "./mailer.service";
 
 @Injectable()
@@ -81,6 +82,56 @@ export class AuthService {
     }
 
     this.logger.log(`Login succeeded for ${email}`);
+    return this.issueToken(user.id, user.email);
+  }
+
+  async loginWithGoogle(profile: GoogleAuthUser) {
+    const email = profile.email.trim().toLowerCase();
+    this.logger.log(`Google login requested for ${email}`);
+
+    const existing = await this.findUserByEmailInsensitive(email, {
+      id: true,
+      email: true,
+      avatarUrl: true,
+      emailVerifiedAt: true,
+    });
+
+    if (existing) {
+      const data: { emailVerifiedAt?: Date; avatarUrl?: string } = {};
+      if (!existing.emailVerifiedAt) {
+        data.emailVerifiedAt = new Date();
+      }
+      if (!existing.avatarUrl && profile.avatarUrl) {
+        data.avatarUrl = profile.avatarUrl;
+      }
+
+      if (Object.keys(data).length > 0) {
+        await this.prisma.user.update({
+          where: { id: existing.id },
+          data,
+        });
+      }
+
+      this.logger.log(`Google login succeeded for existing account ${email}`);
+      return this.issueToken(existing.id, existing.email);
+    }
+
+    const username = await this.generateUniqueUsername(email);
+    const passwordHash = await this.hashPassword(randomBytes(32).toString("hex"));
+    const name = profile.name.trim().slice(0, 120) || email.split("@")[0] || "Google user";
+    const user = await this.prisma.user.create({
+      data: {
+        email,
+        username,
+        name,
+        passwordHash,
+        avatarUrl: profile.avatarUrl || undefined,
+        emailVerifiedAt: new Date(),
+      },
+      select: { id: true, email: true },
+    });
+
+    this.logger.log(`Google login created account for ${email}`);
     return this.issueToken(user.id, user.email);
   }
 

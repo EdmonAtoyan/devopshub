@@ -2,6 +2,7 @@
 
 import { AnimatedLogo } from "@/components/animated-logo";
 import { CaptchaField, captchaEnabled } from "@/components/captcha-field";
+import { GoogleAuthButton } from "@/components/google-auth-button";
 import { PasswordField } from "@/components/password-field";
 import { apiRequest } from "@/lib/api";
 import Link from "next/link";
@@ -71,6 +72,14 @@ export default function RegisterPage() {
             <p className="text-sm leading-6 text-slate-400">
               Start with the core details now. You can complete your profile later in settings, but email verification is required before sign-in is enabled.
             </p>
+          </div>
+          <div className="space-y-3">
+            <GoogleAuthButton />
+            <div className="flex items-center gap-3 text-[11px] font-medium uppercase tracking-[0.28em] text-slate-500">
+              <span className="h-px flex-1 bg-slate-800" />
+              <span>Or create an account with email</span>
+              <span className="h-px flex-1 bg-slate-800" />
+            </div>
           </div>
           <div className="form-grid">
             <label className="field-label">

@@ -15,14 +15,33 @@ jobs:
 
       - name: Deploy to EC2
         uses: appleboy/ssh-action@v1.0.3
+        env:
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_KEY }}
+          envs: GOOGLE_CLIENT_ID,GOOGLE_CLIENT_SECRET
           script: |
             cd ~/devopshub
             git fetch origin
             git reset --hard
             git pull origin main
+            if [ -n "$GOOGLE_CLIENT_ID" ] && [ -n "$GOOGLE_CLIENT_SECRET" ]; then
+              upsert_env() {
+                key="$1"
+                value="$2"
+                if grep -q "^${key}=" .env; then
+                  sed -i "s|^${key}=.*|${key}=\"${value}\"|" .env
+                else
+                  printf '%s=\"%s\"\n' "$key" "$value" >> .env
+                fi
+              }
+              upsert_env GOOGLE_CLIENT_ID "$GOOGLE_CLIENT_ID"
+              upsert_env GOOGLE_CLIENT_SECRET "$GOOGLE_CLIENT_SECRET"
+            else
+              echo "GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET is not set in GitHub Actions secrets; skipping Google OAuth env injection."
+            fi
             docker compose down
             docker compose up -d --build

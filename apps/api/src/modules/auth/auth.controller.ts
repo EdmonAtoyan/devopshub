@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Req, Res, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Post, Req, Res, UnauthorizedException, UseGuards } from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
 import { Request, Response } from "express";
 import { authCookieClearOptions, authCookieOptions } from "../../common/auth-cookie";
@@ -13,6 +13,9 @@ import {
   ResetPasswordDto,
   VerifyEmailDto,
 } from "./dto";
+import { GoogleCallbackAuthGuard, GoogleAuthGuard } from "./google-auth.guard";
+import type { GoogleAuthUser } from "./google.strategy";
+import { buildClientUrl } from "./oauth-url";
 
 @Controller("auth")
 export class AuthController {
@@ -30,6 +33,33 @@ export class AuthController {
     const session = await this.authService.login(dto, this.resolveRequestIp(req));
     res.cookie("access_token", session.accessToken, authCookieOptions(req));
     return { success: true };
+  }
+
+  @Get("google")
+  @UseGuards(GoogleAuthGuard)
+  googleAuth() {}
+
+  @Get("google/callback")
+  @UseGuards(GoogleCallbackAuthGuard)
+  async googleAuthCallback(
+    @Req() req: Request & { user?: GoogleAuthUser },
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    if (!req.user) {
+      throw new UnauthorizedException("Google authentication failed");
+    }
+
+    const session = await this.authService.loginWithGoogle(req.user);
+    res.cookie("access_token", session.accessToken, authCookieOptions(req));
+
+    if (this.wantsJson(req)) {
+      return {
+        success: true,
+        accessToken: session.accessToken,
+      };
+    }
+
+    res.redirect(302, buildClientUrl("/feed"));
   }
 
   @UseGuards(JwtAuthGuard)
@@ -74,5 +104,12 @@ export class AuthController {
       return forwarded.split(",")[0]?.trim() || req.ip;
     }
     return req.ip;
+  }
+
+  private wantsJson(req: Request) {
+    const rawFormat = req.query.format;
+    const format = typeof rawFormat === "string" ? rawFormat.trim().toLowerCase() : "";
+    if (format === "json") return true;
+    return req.accepts(["html", "json"]) === "json";
   }
 }

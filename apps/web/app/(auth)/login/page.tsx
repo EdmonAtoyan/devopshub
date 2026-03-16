@@ -3,10 +3,11 @@
 import { apiRequest } from "@/lib/api";
 import { AnimatedLogo } from "@/components/animated-logo";
 import { CaptchaField, captchaEnabled } from "@/components/captcha-field";
+import { GoogleAuthButton } from "@/components/google-auth-button";
 import { PasswordField } from "@/components/password-field";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -16,6 +17,12 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [verificationEmail, setVerificationEmail] = useState("");
   const [loading, setLoading] = useState(false);
+  const [oauthError, setOauthError] = useState("");
+  const displayError = error || (oauthError === "google" ? "Google sign-in failed. Please try again." : "");
+
+  useEffect(() => {
+    setOauthError(new URLSearchParams(window.location.search).get("oauthError") || "");
+  }, []);
 
   const onSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -77,6 +84,14 @@ export default function LoginPage() {
               Use your email and password to continue into the main workspace. New accounts must verify their email before the first sign-in.
             </p>
           </div>
+          <div className="space-y-3">
+            <GoogleAuthButton />
+            <div className="flex items-center gap-3 text-[11px] font-medium uppercase tracking-[0.28em] text-slate-500">
+              <span className="h-px flex-1 bg-slate-800" />
+              <span>Or sign in with email</span>
+              <span className="h-px flex-1 bg-slate-800" />
+            </div>
+          </div>
           <div className="form-grid">
             <label className="field-label">
               Email
@@ -91,7 +106,7 @@ export default function LoginPage() {
             />
           </div>
           <CaptchaField onTokenChange={setCaptchaToken} />
-          {error ? <p className="text-sm text-danger-soft">{error}</p> : null}
+          {displayError ? <p className="text-sm text-danger-soft">{displayError}</p> : null}
           {verificationEmail ? (
             <p className="text-sm text-slate-400">
               Need a fresh verification link?{" "}

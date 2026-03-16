@@ -7,6 +7,8 @@ import { AuthController } from "./auth.controller";
 import { AuthService } from "./auth.service";
 import { CaptchaService } from "./captcha.service";
 import { EmailValidationService } from "./email-validation.service";
+import { GoogleAuthGuard, GoogleCallbackAuthGuard } from "./google-auth.guard";
+import { GoogleStrategy } from "./google.strategy";
 import { JwtStrategy } from "./jwt.strategy";
 import { MailerService } from "./mailer.service";
 
@@ -23,7 +25,16 @@ import { MailerService } from "./mailer.service";
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, CaptchaService, EmailValidationService, JwtStrategy, MailerService],
+  providers: [
+    AuthService,
+    CaptchaService,
+    EmailValidationService,
+    GoogleAuthGuard,
+    GoogleCallbackAuthGuard,
+    GoogleStrategy,
+    JwtStrategy,
+    MailerService,
+  ],
   exports: [AuthService, CaptchaService, EmailValidationService, JwtModule, MailerService],
 })
 export class AuthModule {}
