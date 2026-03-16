@@ -15,10 +15,6 @@ export class GoogleStrategy extends PassportStrategy(Strategy, "google") {
     const clientSecret = process.env.GOOGLE_CLIENT_SECRET?.trim();
     const callbackURL = process.env.GOOGLE_CALLBACK_URL?.trim();
 
-    if ((!clientID || !clientSecret || !callbackURL) && process.env.NODE_ENV === "production") {
-      throw new Error("Google OAuth must be fully configured in production");
-    }
-
     super({
       clientID: clientID || "google-client-id-missing",
       clientSecret: clientSecret || "google-client-secret-missing",

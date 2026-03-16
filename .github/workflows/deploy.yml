@@ -25,9 +25,19 @@ jobs:
           envs: GOOGLE_CLIENT_ID,GOOGLE_CLIENT_SECRET
           script: |
             cd ~/devopshub
+            backup_env="$(mktemp)"
+            had_env_backup=0
+            if [ -f .env ]; then
+              cp .env "$backup_env"
+              had_env_backup=1
+            fi
             git fetch origin
             git reset --hard
             git pull origin main
+            if [ "$had_env_backup" = "1" ]; then
+              cp "$backup_env" .env
+            fi
+            rm -f "$backup_env"
             if [ -n "$GOOGLE_CLIENT_ID" ] && [ -n "$GOOGLE_CLIENT_SECRET" ]; then
               upsert_env() {
                 key="$1"
