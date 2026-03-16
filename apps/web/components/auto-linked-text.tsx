@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { ReactNode } from "react";
 
 type AutoLinkedTextProps = {
@@ -6,8 +7,8 @@ type AutoLinkedTextProps = {
 
 const MARKDOWN_LINK_PATTERN =
   /\[([^\]\n]+)\]\(((?:https?:\/\/|www\.|(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,})(?:[^\s<>"']*))\)/gi;
-const PLAIN_LINK_PATTERN =
-  /(^|[\s(\[{"'<])((?:https?:\/\/[^\s<>"']+|(?:www\.|(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,})(?:[^\s<>"']*)))/gi;
+const INLINE_TOKEN_PATTERN =
+  /(^|[\s(\[{"'<])((?:https?:\/\/[^\s<>"']+|(?:www\.|(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,})(?:[^\s<>"']*)|@[a-z0-9][a-z0-9._-]{0,29}))/gi;
 const BARE_LINK_PATTERN =
   /^(?:www\.|(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,})(?::\d+)?(?:[/?#][^\s]*)?$/i;
 
@@ -54,9 +55,9 @@ function linkifyPlainText(text: string, createKey: () => string): ReactNode[] {
   const nodes: ReactNode[] = [];
   let cursor = 0;
 
-  PLAIN_LINK_PATTERN.lastIndex = 0;
+  INLINE_TOKEN_PATTERN.lastIndex = 0;
 
-  for (let match = PLAIN_LINK_PATTERN.exec(text); match !== null; match = PLAIN_LINK_PATTERN.exec(text)) {
+  for (let match = INLINE_TOKEN_PATTERN.exec(text); match !== null; match = INLINE_TOKEN_PATTERN.exec(text)) {
     const prefix = match[1] ?? "";
     const rawMatch = match[2];
 
@@ -66,6 +67,17 @@ function linkifyPlainText(text: string, createKey: () => string): ReactNode[] {
 
     if (prefix) {
       nodes.push(prefix);
+    }
+
+    if (rawMatch.startsWith("@")) {
+      const username = rawMatch.slice(1);
+      nodes.push(
+        <Link key={createKey()} href={`/profile/${encodeURIComponent(username)}`} className="auto-link mention-link">
+          {rawMatch}
+        </Link>,
+      );
+      cursor = match.index + match[0].length;
+      continue;
     }
 
     const { linkText, trailingText } = splitTrailingPunctuation(rawMatch);

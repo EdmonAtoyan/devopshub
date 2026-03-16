@@ -18,6 +18,7 @@ import { CurrentUser } from "../../common/current-user.decorator";
 import { JwtAuthGuard } from "../../common/jwt-auth.guard";
 import { NotificationsGateway } from "../notifications/notifications.gateway";
 import { PrismaService } from "../../prisma.service";
+import { MentionsService } from "../mentions/mentions.service";
 import {
   CreateArticleCommentDto,
   CreateArticleDto,
@@ -30,6 +31,7 @@ export class ArticlesController {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notificationsGateway: NotificationsGateway,
+    private readonly mentionsService: MentionsService,
   ) {}
 
   @Get()
@@ -196,7 +198,16 @@ export class ArticlesController {
       include: { author: { select: { id: true, username: true, verified: true, name: true } } },
     });
 
-    if (article.authorId !== user.userId) {
+    const mentionedUserIds = new Set(
+      await this.mentionsService.syncArticleCommentMentions({
+        articleCommentId: comment.id,
+        actorId: user.userId,
+        text: comment.body,
+        contextLabel: "comment",
+      }),
+    );
+
+    if (article.authorId !== user.userId && !mentionedUserIds.has(article.authorId)) {
       const notification = await this.prisma.notification.create({
         data: {
           userId: article.authorId,
@@ -218,11 +229,20 @@ export class ArticlesController {
     @CurrentUser() user: { userId: string },
   ) {
     await this.ensureCommentOwnership(commentId, user.userId);
-    return this.prisma.articleComment.update({
+    const updated = await this.prisma.articleComment.update({
       where: { id: commentId },
       data: { body: dto.body },
       include: { author: { select: { id: true, username: true, verified: true, name: true } } },
     });
+
+    await this.mentionsService.syncArticleCommentMentions({
+      articleCommentId: updated.id,
+      actorId: user.userId,
+      text: updated.body,
+      contextLabel: "comment",
+    });
+
+    return updated;
   }
 
   @UseGuards(JwtAuthGuard)

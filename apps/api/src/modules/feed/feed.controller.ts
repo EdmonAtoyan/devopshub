@@ -24,6 +24,7 @@ import { NotificationsGateway } from "../notifications/notifications.gateway";
 import { PrismaService } from "../../prisma.service";
 import { CreateCommentDto, CreatePostDto, UpdateCommentDto, UpdatePostDto } from "./dto";
 import { buildPostInclude, enrichPosts } from "./post-query";
+import { MentionsService } from "../mentions/mentions.service";
 
 const POST_VIEW_WINDOW_MS = 15 * 60_000;
 
@@ -32,6 +33,7 @@ export class FeedController {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notificationsGateway: NotificationsGateway,
+    private readonly mentionsService: MentionsService,
   ) {}
 
   @UseGuards(OptionalJwtAuthGuard)
@@ -112,6 +114,13 @@ export class FeedController {
       include: buildPostInclude(12),
     });
 
+    await this.mentionsService.syncPostMentions({
+      postId: post.id,
+      actorId: user.userId,
+      text: post.body,
+      contextLabel: "post",
+    });
+
     const [enrichedPost] = await enrichPosts(
       this.prisma,
       [post as Record<string, unknown> & { id: string; _count: { likes: number; comments: number; bookmarks: number } }],
@@ -153,6 +162,13 @@ export class FeedController {
         linkUrl: dto.linkUrl,
       },
       include: buildPostInclude(12),
+    });
+
+    await this.mentionsService.syncPostMentions({
+      postId: updated.id,
+      actorId: user.userId,
+      text: updated.body,
+      contextLabel: "post",
     });
 
     const [enrichedPost] = await enrichPosts(
@@ -467,12 +483,24 @@ export class FeedController {
       include: { author: { select: { id: true, username: true, verified: true, name: true } } },
     });
 
+    const mentionedUserIds = new Set(
+      await this.mentionsService.syncCommentMentions({
+        commentId: comment.id,
+        postId: input.postId,
+        actorId: input.userId,
+        text: body,
+        contextLabel: "comment",
+      }),
+    );
+
     const recipients = new Set<string>();
     if (post.authorId !== input.userId) recipients.add(post.authorId);
     if (parentAuthorId && parentAuthorId !== input.userId) recipients.add(parentAuthorId);
 
     await Promise.all(
-      Array.from(recipients).map(async (recipientId) => {
+      Array.from(recipients)
+        .filter((recipientId) => !mentionedUserIds.has(recipientId))
+        .map(async (recipientId) => {
         const notification = await this.prisma.notification.create({
           data: {
             userId: recipientId,
@@ -495,11 +523,21 @@ export class FeedController {
     @CurrentUser() user: { userId: string },
   ) {
     await this.ensureCommentOwnership(commentId, user.userId);
-    return this.prisma.comment.update({
+    const updated = await this.prisma.comment.update({
       where: { id: commentId },
       data: { body: dto.body },
       include: { author: { select: { id: true, username: true, verified: true, name: true } } },
     });
+
+    await this.mentionsService.syncCommentMentions({
+      commentId: updated.id,
+      postId: updated.postId,
+      actorId: user.userId,
+      text: updated.body,
+      contextLabel: "comment",
+    });
+
+    return updated;
   }
 
   @UseGuards(JwtAuthGuard)

@@ -11,17 +11,18 @@ export class SearchController {
 
   @Get("users")
   async searchUsers(@Query("q") q = "", @Query("limit") limit = "8") {
-    const term = q.trim();
-    if (!term) return [];
+    const term = q.trim().toLowerCase();
     const safeLimit = clampInt(limit, 1, 20, 8);
 
-    return this.prisma.user.findMany({
-      where: {
-        OR: [
-          { username: { contains: term, mode: "insensitive" } },
-          { name: { contains: term, mode: "insensitive" } },
-        ],
-      },
+    const users = await this.prisma.user.findMany({
+      where: term
+        ? {
+            OR: [
+              { username: { contains: term, mode: "insensitive" } },
+              { name: { contains: term, mode: "insensitive" } },
+            ],
+          }
+        : undefined,
       select: {
         id: true,
         username: true,
@@ -30,9 +31,22 @@ export class SearchController {
         bio: true,
         avatarUrl: true,
       },
-      orderBy: { reputation: "desc" },
-      take: safeLimit,
+      orderBy: [{ reputation: "desc" }, { createdAt: "desc" }],
+      take: term ? safeLimit * 3 : safeLimit,
     });
+
+    if (!term) {
+      return users;
+    }
+
+    return users
+      .sort(
+        (
+          left: { username: string; name: string },
+          right: { username: string; name: string },
+        ) => compareUserSearch(left, right, term),
+      )
+      .slice(0, safeLimit);
   }
 
   @UseGuards(OptionalJwtAuthGuard)
@@ -100,4 +114,24 @@ export class SearchController {
 
     return { users, posts, articles, tools, tags };
   }
+}
+
+function compareUserSearch(
+  left: { username: string; name: string },
+  right: { username: string; name: string },
+  term: string,
+) {
+  const score = (entry: { username: string; name: string }) => {
+    const username = entry.username.toLowerCase();
+    const name = entry.name.toLowerCase();
+
+    if (username === term) return 5;
+    if (username.startsWith(term)) return 4;
+    if (name.startsWith(term)) return 3;
+    if (username.includes(term)) return 2;
+    if (name.includes(term)) return 1;
+    return 0;
+  };
+
+  return score(right) - score(left) || left.username.localeCompare(right.username);
 }

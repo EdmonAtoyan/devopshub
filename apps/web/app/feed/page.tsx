@@ -352,6 +352,7 @@ export default function FeedPage() {
               value={body}
               maxLength={POST_BODY_MAX_LENGTH}
               onValueChange={setBody}
+              enableMentions
             />
             <div className="form-actions">
               <button className="btn-primary w-full sm:w-auto">Post</button>
@@ -387,6 +388,7 @@ export default function FeedPage() {
                   value={editingPost.body}
                   maxLength={POST_BODY_MAX_LENGTH}
                   onValueChange={(nextBody) => setEditingPost({ id: post.id, body: nextBody })}
+                  enableMentions
                 />
                 <div className="action-cluster">
                   <button type="button" className="btn-primary" onClick={() => void savePostEdit()}>
@@ -506,6 +508,7 @@ export default function FeedPage() {
                               className="input min-h-20"
                               value={editingValue}
                               onValueChange={(nextBody) => setEditingComment((prev) => ({ ...prev, [comment.id]: nextBody }))}
+                              enableMentions
                             />
                             <div className="action-cluster">
                               <button type="button" className="btn-primary" onClick={() => void saveCommentEdit(comment.id, postId)}>
@@ -551,6 +554,7 @@ export default function FeedPage() {
                               placeholder="Write a reply"
                               value={replyByComment[comment.id] || ""}
                               onValueChange={(nextBody) => setReplyByComment((prev) => ({ ...prev, [comment.id]: nextBody }))}
+                              enableMentions
                             />
                             <button
                               type="button"
@@ -602,6 +606,7 @@ export default function FeedPage() {
                                         className="input min-h-20"
                                         value={editingReplyValue}
                                         onValueChange={(nextBody) => setEditingComment((prev) => ({ ...prev, [reply.id]: nextBody }))}
+                                        enableMentions
                                       />
                                       <div className="action-cluster">
                                         <button
@@ -646,6 +651,7 @@ export default function FeedPage() {
                       placeholder="Add a comment"
                       value={newCommentByPost[postId] || ""}
                       onValueChange={(nextBody) => setNewCommentByPost((prev) => ({ ...prev, [postId]: nextBody }))}
+                      enableMentions
                     />
                     <button type="button" className="btn-secondary w-full sm:w-auto" onClick={() => void addComment(postId)}>
                       Comment

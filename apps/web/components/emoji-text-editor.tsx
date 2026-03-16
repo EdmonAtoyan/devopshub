@@ -1,11 +1,23 @@
 "use client";
 
 import { SmileIcon } from "@/components/icons";
-import type { ChangeEventHandler } from "react";
+import { apiRequest } from "@/lib/api";
+import type { ChangeEventHandler, FocusEventHandler } from "react";
 import { useEffect, useId, useRef, useState } from "react";
 
 type EmojiPickerModule = typeof import("emoji-picker-react");
 type EditorElement = HTMLInputElement | HTMLTextAreaElement;
+type MentionSuggestion = {
+  id: string;
+  username: string;
+  verified?: boolean;
+  name: string;
+};
+type MentionMatch = {
+  start: number;
+  end: number;
+  query: string;
+};
 
 type EmojiTextEditorProps = {
   value: string;
@@ -19,7 +31,11 @@ type EmojiTextEditorProps = {
   autoFocus?: boolean;
   rows?: number;
   ariaLabel?: string;
+  enableMentions?: boolean;
 };
+
+const VALID_MENTION_CHAR = /[a-z0-9._-]/i;
+const MENTION_TRIGGER_PATTERN = /(^|[\s([{"'<])@([a-z0-9._-]*)$/i;
 
 export function EmojiTextEditor({
   value,
@@ -33,9 +49,13 @@ export function EmojiTextEditor({
   autoFocus,
   rows,
   ariaLabel,
+  enableMentions = false,
 }: EmojiTextEditorProps) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerModule, setPickerModule] = useState<EmojiPickerModule | null>(null);
+  const [mentionMatch, setMentionMatch] = useState<MentionMatch | null>(null);
+  const [mentionSuggestions, setMentionSuggestions] = useState<MentionSuggestion[]>([]);
+  const [mentionLoading, setMentionLoading] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<EditorElement | null>(null);
   const selectionRef = useRef({ start: value.length, end: value.length });
@@ -60,7 +80,7 @@ export function EmojiTextEditor({
   }, [pickerModule, pickerOpen]);
 
   useEffect(() => {
-    if (!pickerOpen) {
+    if (!pickerOpen && !mentionMatch) {
       return;
     }
 
@@ -70,6 +90,8 @@ export function EmojiTextEditor({
       }
 
       setPickerOpen(false);
+      setMentionMatch(null);
+      setMentionSuggestions([]);
     };
 
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -78,6 +100,8 @@ export function EmojiTextEditor({
       }
 
       setPickerOpen(false);
+      setMentionMatch(null);
+      setMentionSuggestions([]);
       inputRef.current?.focus();
     };
 
@@ -88,7 +112,64 @@ export function EmojiTextEditor({
       document.removeEventListener("mousedown", handlePointerDown);
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [pickerOpen]);
+  }, [mentionMatch, pickerOpen]);
+
+  useEffect(() => {
+    if (!enableMentions || !mentionMatch) {
+      setMentionSuggestions([]);
+      setMentionLoading(false);
+      return;
+    }
+
+    let active = true;
+    setMentionLoading(true);
+
+    const timer = window.setTimeout(() => {
+      const path = mentionMatch.query
+        ? `search/users?q=${encodeURIComponent(mentionMatch.query)}&limit=6`
+        : "search/users?limit=6";
+
+      void apiRequest<MentionSuggestion[]>(path)
+        .then((users) => {
+          if (!active) {
+            return;
+          }
+
+          setMentionSuggestions(sortMentionSuggestions(users, mentionMatch.query));
+          setMentionLoading(false);
+        })
+        .catch(() => {
+          if (!active) {
+            return;
+          }
+
+          setMentionSuggestions([]);
+          setMentionLoading(false);
+        });
+    }, 120);
+
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [enableMentions, mentionMatch]);
+
+  useEffect(() => {
+    if (mentionMatch) {
+      setPickerOpen(false);
+    }
+  }, [mentionMatch]);
+
+  const syncSelectionState = (nextValue: string, start: number, end: number) => {
+    selectionRef.current = { start, end };
+
+    if (!enableMentions) {
+      setMentionMatch(null);
+      return;
+    }
+
+    setMentionMatch(resolveMentionMatch(nextValue, start, end));
+  };
 
   const rememberSelection = () => {
     const target = inputRef.current;
@@ -97,10 +178,11 @@ export function EmojiTextEditor({
       return;
     }
 
-    selectionRef.current = {
-      start: target.selectionStart ?? value.length,
-      end: target.selectionEnd ?? value.length,
-    };
+    syncSelectionState(
+      value,
+      target.selectionStart ?? value.length,
+      target.selectionEnd ?? value.length,
+    );
   };
 
   const insertEmoji = (emoji: string) => {
@@ -114,6 +196,8 @@ export function EmojiTextEditor({
     onValueChange(nextValue);
     selectionRef.current = { start: nextCaretPosition, end: nextCaretPosition };
     setPickerOpen(false);
+    setMentionMatch(null);
+    setMentionSuggestions([]);
 
     requestAnimationFrame(() => {
       const editor = inputRef.current;
@@ -127,8 +211,59 @@ export function EmojiTextEditor({
     });
   };
 
-  const handleChange: ChangeEventHandler<HTMLInputElement | HTMLTextAreaElement> = (event) => onValueChange(event.target.value);
+  const insertMention = (suggestion: MentionSuggestion) => {
+    if (!mentionMatch) {
+      return;
+    }
+
+    const before = value.slice(0, mentionMatch.start);
+    const after = value.slice(mentionMatch.end);
+    const needsTrailingSpace = after.length === 0 || !/^[\s.,!?;:)\]}]/.test(after);
+    const spacer = needsTrailingSpace ? " " : "";
+    const nextValue = `${before}@${suggestion.username}${spacer}${after}`;
+    const nextCaretPosition = before.length + suggestion.username.length + 1 + spacer.length;
+
+    onValueChange(nextValue);
+    selectionRef.current = { start: nextCaretPosition, end: nextCaretPosition };
+    setMentionMatch(null);
+    setMentionSuggestions([]);
+
+    requestAnimationFrame(() => {
+      const editor = inputRef.current;
+
+      if (!editor) {
+        return;
+      }
+
+      editor.focus();
+      editor.setSelectionRange(nextCaretPosition, nextCaretPosition);
+    });
+  };
+
+  const handleChange: ChangeEventHandler<HTMLInputElement | HTMLTextAreaElement> = (event) => {
+    const nextValue = event.target.value;
+    const start = event.target.selectionStart ?? nextValue.length;
+    const end = event.target.selectionEnd ?? start;
+
+    onValueChange(nextValue);
+    syncSelectionState(nextValue, start, end);
+  };
+
+  const handleBlur: FocusEventHandler<HTMLInputElement | HTMLTextAreaElement> = () => {
+    rememberSelection();
+
+    window.setTimeout(() => {
+      if (containerRef.current?.contains(document.activeElement)) {
+        return;
+      }
+
+      setMentionMatch(null);
+      setMentionSuggestions([]);
+    }, 0);
+  };
+
   const EmojiPicker = pickerModule?.default;
+  const showMentionSuggestions = enableMentions && mentionMatch && (mentionLoading || mentionSuggestions.length > 0);
 
   const sharedProps = {
     className: `${className} emoji-editor-field`.trim(),
@@ -143,7 +278,7 @@ export function EmojiTextEditor({
     onSelect: rememberSelection,
     onClick: rememberSelection,
     onKeyUp: rememberSelection,
-    onBlur: rememberSelection,
+    onBlur: handleBlur,
   };
 
   return (
@@ -177,10 +312,34 @@ export function EmojiTextEditor({
           event.preventDefault();
           rememberSelection();
         }}
-        onClick={() => setPickerOpen((current) => !current)}
+        onClick={() => {
+          setMentionMatch(null);
+          setMentionSuggestions([]);
+          setPickerOpen((current) => !current);
+        }}
       >
         <SmileIcon size={18} />
       </button>
+
+      {showMentionSuggestions ? (
+        <div className="mention-suggestions menu-pop" role="listbox" aria-label="Mention suggestions">
+          {mentionSuggestions.map((suggestion) => (
+            <button
+              key={suggestion.id}
+              type="button"
+              className="mention-suggestion"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => insertMention(suggestion)}
+            >
+              <span className="mention-suggestion-copy">
+                <span className="mention-suggestion-username">@{suggestion.username}</span>
+                <span className="mention-suggestion-name">{suggestion.name}</span>
+              </span>
+            </button>
+          ))}
+          {mentionLoading ? <div className="mention-suggestion-empty">Searching users...</div> : null}
+        </div>
+      ) : null}
 
       {pickerOpen ? (
         <div id={pickerId} className="emoji-picker-popover menu-pop" role="dialog" aria-label="Emoji picker">
@@ -203,4 +362,50 @@ export function EmojiTextEditor({
       ) : null}
     </div>
   );
+}
+
+function resolveMentionMatch(text: string, start: number, end: number) {
+  if (start !== end) {
+    return null;
+  }
+
+  const beforeCursor = text.slice(0, start);
+  const triggerMatch = beforeCursor.match(MENTION_TRIGGER_PATTERN);
+  if (!triggerMatch) {
+    return null;
+  }
+
+  const mentionStart = start - triggerMatch[2].length - 1;
+  let mentionEnd = start;
+
+  while (mentionEnd < text.length && VALID_MENTION_CHAR.test(text[mentionEnd])) {
+    mentionEnd += 1;
+  }
+
+  return {
+    start: mentionStart,
+    end: mentionEnd,
+    query: text.slice(mentionStart + 1, mentionEnd).toLowerCase(),
+  };
+}
+
+function sortMentionSuggestions(users: MentionSuggestion[], query: string) {
+  const term = query.trim().toLowerCase();
+  if (!term) {
+    return users;
+  }
+
+  const score = (user: MentionSuggestion) => {
+    const username = user.username.toLowerCase();
+    const name = user.name.toLowerCase();
+
+    if (username === term) return 5;
+    if (username.startsWith(term)) return 4;
+    if (name.startsWith(term)) return 3;
+    if (username.includes(term)) return 2;
+    if (name.includes(term)) return 1;
+    return 0;
+  };
+
+  return [...users].sort((left, right) => score(right) - score(left) || left.username.localeCompare(right.username));
 }

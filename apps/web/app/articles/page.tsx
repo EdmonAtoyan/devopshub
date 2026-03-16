@@ -289,6 +289,7 @@ export default function ArticlesPage() {
                           className="input min-h-20"
                           value={editingValue}
                           onValueChange={(nextBody) => setEditingComment((prev) => ({ ...prev, [comment.id]: nextBody }))}
+                          enableMentions
                         />
                         <div className="action-cluster">
                           <button type="button" className="btn-primary" onClick={() => void saveCommentEdit(comment.id)}>
@@ -324,6 +325,7 @@ export default function ArticlesPage() {
                   placeholder="Add a comment"
                   value={newCommentByArticle[article.id] || ""}
                   onValueChange={(nextBody) => setNewCommentByArticle((prev) => ({ ...prev, [article.id]: nextBody }))}
+                  enableMentions
                 />
                 <button type="button" className="btn-secondary w-full sm:w-auto" onClick={() => void addComment(article.id)}>
                   Comment
