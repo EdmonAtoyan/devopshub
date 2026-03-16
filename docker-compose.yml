@@ -47,27 +47,29 @@ services:
       CORS_ORIGIN: "*"
       SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
       SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
       SMTP_USER: ${SMTP_USER}
       SMTP_PASS: ${SMTP_PASS}
       SMTP_FROM: ${SMTP_FROM}
+      SMTP_REPLY_TO: ${SMTP_REPLY_TO:-}
       NODE_ENV: production
     ports:
       - "4000:4000"
     volumes:
       - uploads_data:/app/uploads
     command: >
-      sh -c "npm run db:generate &&
-      npm exec -- prisma migrate deploy --schema ../../prisma/schema.prisma &&
-      npm run start"
+      sh -c "node scripts/prepare-startup.js &&
+      node dist/main"
     healthcheck:
       test:
         [
           "CMD-SHELL",
           "node -e \"fetch('http://127.0.0.1:4000/api/health').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))\"",
         ]
-      interval: 10s
+      interval: 5s
       timeout: 5s
-      retries: 12
+      retries: 24
+      start_period: 25s
 
   web:
     build:

@@ -32,4 +32,4 @@ WORKDIR /app/apps/api
 
 EXPOSE 4000
 
-CMD ["npm", "run", "start"]
+CMD ["sh", "-c", "node scripts/prepare-startup.js && node dist/main"]

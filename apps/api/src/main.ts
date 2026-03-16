@@ -20,7 +20,7 @@ async function bootstrap() {
     next();
   });
   httpApp.get("/api/health", (_req: express.Request, res: express.Response) => {
-    res.json({
+    res.status(200).json({
       service: "community-api",
       status: "ok",
       timestamp: new Date().toISOString(),

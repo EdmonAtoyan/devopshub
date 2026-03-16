@@ -4,7 +4,7 @@ BEGIN
     SELECT 1
     FROM pg_enum
     WHERE enumlabel = 'MENTION'
-      AND enumtypid = 'NotificationType'::regtype
+      AND enumtypid = to_regtype('"NotificationType"')
   ) THEN
     ALTER TYPE "NotificationType" ADD VALUE 'MENTION';
   END IF;
