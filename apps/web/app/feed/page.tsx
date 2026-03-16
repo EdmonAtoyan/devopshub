@@ -565,18 +565,18 @@ export default function FeedPage() {
                               <button
                                 type="button"
                                 className="btn-secondary"
-                                onClick={() =>
+                                onClick={() => {
                                   setEditingComment((prev) => {
                                     const next = { ...prev };
                                     delete next[comment.id];
                                     return next;
-                                  })
+                                  });
                                   setEditingCommentGif((prev) => {
                                     const next = { ...prev };
                                     delete next[comment.id];
                                     return next;
-                                  })
-                                }
+                                  });
+                                }}
                               >
                                 Cancel
                               </button>
@@ -687,18 +687,18 @@ export default function FeedPage() {
                                         <button
                                           type="button"
                                           className="btn-secondary"
-                                          onClick={() =>
+                                          onClick={() => {
                                             setEditingComment((prev) => {
                                               const next = { ...prev };
                                               delete next[reply.id];
                                               return next;
-                                            })
+                                            });
                                             setEditingCommentGif((prev) => {
                                               const next = { ...prev };
                                               delete next[reply.id];
                                               return next;
-                                            })
-                                          }
+                                            });
+                                          }}
                                         >
                                           Cancel
                                         </button>
