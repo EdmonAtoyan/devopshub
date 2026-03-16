@@ -14,6 +14,7 @@ import {
 } from "@nestjs/common";
 import { createHash, randomUUID } from "crypto";
 import { Request } from "express";
+import { assertCommentContent, assertRichContent, normalizeGifInput } from "../../common/gifs";
 import { toNotificationDto } from "../../common/notifications";
 import { OptionalJwtAuthGuard } from "../../common/optional-jwt-auth.guard";
 import { clampInt } from "../../common/query";
@@ -98,11 +99,15 @@ export class FeedController {
   @UseGuards(JwtAuthGuard)
   @Post()
   async create(@Body() dto: CreatePostDto, @CurrentUser() user: { userId: string }) {
+    const gif = normalizeGifInput(dto);
+    assertRichContent(dto.body, gif.gifUrl);
     const tagLinks = await this.resolveTags(dto.tags || []);
 
     const post = await this.prisma.post.create({
       data: {
         body: dto.body,
+        gifUrl: gif.gifUrl,
+        gifAlt: gif.gifAlt,
         codeBlock: dto.codeBlock,
         codeLang: dto.codeLang,
         linkUrl: dto.linkUrl,
@@ -143,6 +148,8 @@ export class FeedController {
     if (post.originalPostId) {
       throw new ForbiddenException("Reposts cannot be edited");
     }
+    const gif = normalizeGifInput(dto);
+    assertRichContent(dto.body ?? "", gif.gifUrl);
 
     if (dto.tags) {
       await this.prisma.postTag.deleteMany({ where: { postId: id } });
@@ -157,6 +164,8 @@ export class FeedController {
       where: { id },
       data: {
         body: dto.body,
+        gifUrl: gif.gifUrl,
+        gifAlt: gif.gifAlt,
         codeBlock: dto.codeBlock,
         codeLang: dto.codeLang,
         linkUrl: dto.linkUrl,
@@ -445,12 +454,21 @@ export class FeedController {
     return this.createCommentRecord({
       postId: dto.postId,
       body: dto.body,
+      gifUrl: dto.gifUrl,
+      gifAlt: dto.gifAlt,
       parentId: dto.parentId,
       userId: user.userId,
     });
   }
 
-  private async createCommentRecord(input: { postId: string; body: string; parentId?: string; userId: string }) {
+  private async createCommentRecord(input: {
+    postId: string;
+    body: string;
+    gifUrl?: string;
+    gifAlt?: string;
+    parentId?: string;
+    userId: string;
+  }) {
     const post = await this.prisma.post.findUnique({
       where: { id: input.postId },
       select: { authorId: true },
@@ -461,6 +479,7 @@ export class FeedController {
 
     let parentAuthorId: string | null = null;
     let body = input.body;
+    const gif = normalizeGifInput(input);
     if (input.parentId) {
       const parent = await this.prisma.comment.findUnique({
         where: { id: input.parentId },
@@ -473,12 +492,15 @@ export class FeedController {
       parentAuthorId = parent.authorId;
       body = `@reply:${input.parentId}\n${input.body}`;
     }
+    assertCommentContent(body, gif.gifUrl);
 
     const comment = await this.prisma.comment.create({
       data: {
         postId: input.postId,
         authorId: input.userId,
         body,
+        gifUrl: gif.gifUrl,
+        gifAlt: gif.gifAlt,
       },
       include: { author: { select: { id: true, username: true, verified: true, name: true } } },
     });
@@ -522,10 +544,16 @@ export class FeedController {
     @Body() dto: UpdateCommentDto,
     @CurrentUser() user: { userId: string },
   ) {
+    const gif = normalizeGifInput(dto);
+    assertCommentContent(dto.body, gif.gifUrl);
     await this.ensureCommentOwnership(commentId, user.userId);
     const updated = await this.prisma.comment.update({
       where: { id: commentId },
-      data: { body: dto.body },
+      data: {
+        body: dto.body,
+        gifUrl: gif.gifUrl,
+        gifAlt: gif.gifAlt,
+      },
       include: { author: { select: { id: true, username: true, verified: true, name: true } } },
     });
 

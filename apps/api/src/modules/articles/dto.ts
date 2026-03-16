@@ -46,10 +46,30 @@ export class CreateArticleCommentDto {
   @IsString()
   @MaxLength(1000)
   body!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2048)
+  gifUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(240)
+  gifAlt?: string;
 }
 
 export class UpdateArticleCommentDto {
   @IsString()
   @MaxLength(1000)
   body!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2048)
+  gifUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(240)
+  gifAlt?: string;
 }

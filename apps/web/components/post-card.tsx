@@ -1,7 +1,9 @@
 import { ReactNode, SVGProps } from "react";
 import { AutoLinkedText } from "./auto-linked-text";
+import { GifAttachment } from "./gif-attachment";
 import { BookmarkIcon, EyeIcon, HeartIcon, MessageCircleIcon, RepeatIcon } from "./icons";
 import { UsernameInline } from "./verified-badge";
+import type { GifAttachment as GifAttachmentValue } from "@/lib/gifs";
 
 export type PostCardAuthor = {
   id?: string;
@@ -30,6 +32,7 @@ export type PostCardViewerState = {
 export type PostCardData = {
   id: string;
   body: string;
+  gif?: GifAttachmentValue | null;
   createdAt: string;
   author: PostCardAuthor;
   tags?: PostCardTag[];
@@ -70,6 +73,7 @@ type PostCardProps = {
   showActions?: boolean;
   footer?: ReactNode;
   children?: ReactNode;
+  showGifs?: boolean;
 };
 
 export function PostCard({
@@ -93,6 +97,7 @@ export function PostCard({
   showActions,
   footer,
   children,
+  showGifs = true,
 }: PostCardProps) {
   const tags = post.tags || [];
   const counts = post.counts || {};
@@ -144,6 +149,15 @@ export function PostCard({
         >
           <AutoLinkedText text={body ?? post.body} />
         </p>
+
+        {post.gif ? (
+          <GifAttachment
+            gif={post.gif}
+            showByDefault={showGifs}
+            compact={variant === "compact"}
+            className="mt-3"
+          />
+        ) : null}
 
         {showToggle && onToggleExpand ? (
           <button type="button" className="post-toggle mt-3" onClick={onToggleExpand}>

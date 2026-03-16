@@ -252,6 +252,7 @@ export class AuthService {
         id: true,
         email: true,
         username: true,
+        showGifs: true,
         verified: true,
         name: true,
         bio: true,

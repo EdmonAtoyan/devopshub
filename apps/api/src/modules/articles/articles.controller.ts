@@ -11,6 +11,7 @@ import {
   Post,
   UseGuards,
 } from "@nestjs/common";
+import { assertRichContent, normalizeGifInput } from "../../common/gifs";
 import { toNotificationDto } from "../../common/notifications";
 import { clampInt } from "../../common/query";
 import { normalizeTagNames } from "../../common/tags";
@@ -185,6 +186,8 @@ export class ArticlesController {
     @Body() dto: CreateArticleCommentDto,
     @CurrentUser() user: { userId: string },
   ) {
+    const gif = normalizeGifInput(dto);
+    assertRichContent(dto.body, gif.gifUrl);
     const article = await this.prisma.article.findUnique({
       where: { id },
       select: { authorId: true },
@@ -194,7 +197,13 @@ export class ArticlesController {
     }
 
     const comment = await this.prisma.articleComment.create({
-      data: { articleId: id, authorId: user.userId, body: dto.body },
+      data: {
+        articleId: id,
+        authorId: user.userId,
+        body: dto.body,
+        gifUrl: gif.gifUrl,
+        gifAlt: gif.gifAlt,
+      },
       include: { author: { select: { id: true, username: true, verified: true, name: true } } },
     });
 
@@ -228,10 +237,16 @@ export class ArticlesController {
     @Body() dto: UpdateArticleCommentDto,
     @CurrentUser() user: { userId: string },
   ) {
+    const gif = normalizeGifInput(dto);
+    assertRichContent(dto.body, gif.gifUrl);
     await this.ensureCommentOwnership(commentId, user.userId);
     const updated = await this.prisma.articleComment.update({
       where: { id: commentId },
-      data: { body: dto.body },
+      data: {
+        body: dto.body,
+        gifUrl: gif.gifUrl,
+        gifAlt: gif.gifAlt,
+      },
       include: { author: { select: { id: true, username: true, verified: true, name: true } } },
     });
 

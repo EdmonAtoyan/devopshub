@@ -9,6 +9,16 @@ export class CreatePostDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(2048)
+  gifUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(240)
+  gifAlt?: string;
+
+  @IsOptional()
+  @IsString()
   codeBlock?: string;
 
   @IsOptional()
@@ -32,6 +42,16 @@ export class UpdatePostDto {
   @IsString()
   @MaxLength(POST_BODY_MAX_LENGTH)
   body?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2048)
+  gifUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(240)
+  gifAlt?: string;
 
   @IsOptional()
   @IsString()
@@ -64,6 +84,16 @@ export class CreateCommentDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(2048)
+  gifUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(240)
+  gifAlt?: string;
+
+  @IsOptional()
+  @IsString()
   parentId?: string;
 }
 
@@ -71,4 +101,14 @@ export class UpdateCommentDto {
   @IsString()
   @MaxLength(1000)
   body!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2048)
+  gifUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(240)
+  gifAlt?: string;
 }

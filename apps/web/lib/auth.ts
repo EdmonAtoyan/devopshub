@@ -3,6 +3,7 @@ import { apiRequest } from "./api";
 export type CurrentUser = {
   id: string;
   username: string;
+  showGifs?: boolean;
   verified?: boolean;
   email?: string;
   name?: string;

@@ -131,6 +131,7 @@ export class UsersController {
       select: {
         id: true,
         username: true,
+        showGifs: true,
         verified: true,
         email: true,
         name: true,
@@ -183,6 +184,7 @@ export class UsersController {
       username?: string;
       email?: string;
       bio?: string;
+      showGifs?: boolean;
     } = {};
     const currentUser = await this.prisma.user.findUnique({
       where: { id: user.userId },
@@ -221,6 +223,7 @@ export class UsersController {
     }
 
     if (dto.bio !== undefined) data.bio = dto.bio.trim();
+    if (dto.showGifs !== undefined) data.showGifs = dto.showGifs;
 
     const updated = await this.prisma.user.update({
       where: { id: user.userId },
@@ -228,6 +231,7 @@ export class UsersController {
       select: {
         id: true,
         username: true,
+        showGifs: true,
         verified: true,
         email: true,
         name: true,
@@ -321,6 +325,7 @@ export class UsersController {
       select: {
         id: true,
         username: true,
+        showGifs: true,
         verified: true,
         email: true,
         name: true,

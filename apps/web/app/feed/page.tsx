@@ -2,6 +2,7 @@
 
 import { AutoLinkedText } from "@/components/auto-linked-text";
 import { EmojiTextEditor } from "@/components/emoji-text-editor";
+import { GifAttachment } from "@/components/gif-attachment";
 import { Shell } from "@/components/shell";
 import { MoreHorizontalIcon } from "@/components/icons";
 import { PostCard } from "@/components/post-card";
@@ -9,6 +10,7 @@ import { PixelInfinityLoader } from "@/components/pixel-infinity-loader";
 import { UsernameInline } from "@/components/verified-badge";
 import { apiRequest } from "@/lib/api";
 import { getCurrentUser, type CurrentUser } from "@/lib/auth";
+import { hasComposerContent, toGifAttachment, toGifPayload, type GifAttachment as GifAttachmentValue } from "@/lib/gifs";
 import { applyPostInteraction, type PostActionType, type PostViewerState, toPostCardData } from "@/lib/posts";
 import { createTextPreview } from "@/lib/preview";
 import { connectRealtime, type SocketLike } from "@/lib/realtime";
@@ -17,6 +19,8 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 type FeedComment = {
   id: string;
   body: string;
+  gifUrl?: string | null;
+  gifAlt?: string | null;
   createdAt: string;
   parentId?: string | null;
   author: { id: string; username: string; verified?: boolean; name: string };
@@ -26,6 +30,8 @@ type FeedComment = {
 type FeedPostContent = {
   id: string;
   body: string;
+  gifUrl?: string | null;
+  gifAlt?: string | null;
   createdAt: string;
   viewCount: number;
   author: { id: string; username: string; verified?: boolean; name: string };
@@ -46,14 +52,18 @@ const POST_BODY_MAX_LENGTH = 10_000;
 export default function FeedPage() {
   const [posts, setPosts] = useState<FeedItem[]>([]);
   const [body, setBody] = useState("");
+  const [postGif, setPostGif] = useState<GifAttachmentValue | null>(null);
   const [error, setError] = useState("");
   const [me, setMe] = useState<CurrentUser>(null);
   const [menuFor, setMenuFor] = useState<string | null>(null);
-  const [editingPost, setEditingPost] = useState<{ id: string; body: string } | null>(null);
+  const [editingPost, setEditingPost] = useState<{ id: string; body: string; gif: GifAttachmentValue | null } | null>(null);
   const [newCommentByPost, setNewCommentByPost] = useState<Record<string, string>>({});
+  const [newCommentGifByPost, setNewCommentGifByPost] = useState<Record<string, GifAttachmentValue | null>>({});
   const [editingComment, setEditingComment] = useState<Record<string, string>>({});
+  const [editingCommentGif, setEditingCommentGif] = useState<Record<string, GifAttachmentValue | null>>({});
   const [replyOpenByComment, setReplyOpenByComment] = useState<Record<string, boolean>>({});
   const [replyByComment, setReplyByComment] = useState<Record<string, string>>({});
+  const [replyGifByComment, setReplyGifByComment] = useState<Record<string, GifAttachmentValue | null>>({});
   const [sort, setSort] = useState<FeedSort>("latest");
   const [expandedPosts, setExpandedPosts] = useState<Record<string, boolean>>({});
   const [feedLoading, setFeedLoading] = useState(false);
@@ -62,6 +72,7 @@ export default function FeedPage() {
   const trackedViewsRef = useRef<Set<string>>(new Set());
 
   const meId = me?.id ?? "";
+  const showGifs = me?.showGifs !== false;
 
   const loadMe = async () => {
     try {
@@ -139,11 +150,15 @@ export default function FeedPage() {
 
   const createPost = async (event: FormEvent) => {
     event.preventDefault();
-    if (!body.trim()) return;
+    if (!hasComposerContent(body, postGif)) return;
 
     try {
-      await apiRequest("feed", { method: "POST", body: JSON.stringify({ body }) });
+      await apiRequest("feed", {
+        method: "POST",
+        body: JSON.stringify({ body, ...toGifPayload(postGif) }),
+      });
       setBody("");
+      setPostGif(null);
       await load();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not publish post.");
@@ -228,7 +243,7 @@ export default function FeedPage() {
     try {
       await apiRequest(`feed/${editingPost.id}`, {
         method: "PATCH",
-        body: JSON.stringify({ body: editingPost.body }),
+        body: JSON.stringify({ body: editingPost.body, ...toGifPayload(editingPost.gif) }),
       });
       setEditingPost(null);
       await load();
@@ -239,15 +254,17 @@ export default function FeedPage() {
 
   const addComment = async (postId: string) => {
     const value = (newCommentByPost[postId] || "").trim();
-    if (!value) return;
+    const gif = newCommentGifByPost[postId] || null;
+    if (!hasComposerContent(value, gif)) return;
 
     setCommentsLoadingPostId(postId);
     try {
       await apiRequest(`feed/comments`, {
         method: "POST",
-        body: JSON.stringify({ postId, body: value }),
+        body: JSON.stringify({ postId, body: value, ...toGifPayload(gif) }),
       });
       setNewCommentByPost((prev) => ({ ...prev, [postId]: "" }));
+      setNewCommentGifByPost((prev) => ({ ...prev, [postId]: null }));
       await load();
     } catch {
       setError("Login is required to comment.");
@@ -258,15 +275,17 @@ export default function FeedPage() {
 
   const addReply = async (postId: string, parentId: string) => {
     const value = (replyByComment[parentId] || "").trim();
-    if (!value) return;
+    const gif = replyGifByComment[parentId] || null;
+    if (!hasComposerContent(value, gif)) return;
 
     setCommentsLoadingPostId(postId);
     try {
       await apiRequest(`feed/comments`, {
         method: "POST",
-        body: JSON.stringify({ postId, body: value, parentId }),
+        body: JSON.stringify({ postId, body: value, parentId, ...toGifPayload(gif) }),
       });
       setReplyByComment((prev) => ({ ...prev, [parentId]: "" }));
+      setReplyGifByComment((prev) => ({ ...prev, [parentId]: null }));
       setReplyOpenByComment((prev) => ({ ...prev, [parentId]: false }));
       await load();
     } catch {
@@ -278,13 +297,22 @@ export default function FeedPage() {
 
   const saveCommentEdit = async (commentId: string, postId: string, parentId?: string | null) => {
     const value = (editingComment[commentId] || "").trim();
-    if (!value) return;
+    const gif = editingCommentGif[commentId] || null;
+    if (!hasComposerContent(value, gif)) return;
     const body = parentId ? `@reply:${parentId}\n${value}` : value;
 
     setCommentsLoadingPostId(postId);
     try {
-      await apiRequest(`feed/comments/${commentId}`, { method: "PATCH", body: JSON.stringify({ body }) });
+      await apiRequest(`feed/comments/${commentId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ body, ...toGifPayload(gif) }),
+      });
       setEditingComment((prev) => {
+        const next = { ...prev };
+        delete next[commentId];
+        return next;
+      });
+      setEditingCommentGif((prev) => {
         const next = { ...prev };
         delete next[commentId];
         return next;
@@ -353,6 +381,9 @@ export default function FeedPage() {
               maxLength={POST_BODY_MAX_LENGTH}
               onValueChange={setBody}
               enableMentions
+              enableGifPicker
+              gif={postGif}
+              onGifSelect={setPostGif}
             />
             <div className="form-actions">
               <button className="btn-primary w-full sm:w-auto">Post</button>
@@ -387,8 +418,15 @@ export default function FeedPage() {
                   className="input min-h-32"
                   value={editingPost.body}
                   maxLength={POST_BODY_MAX_LENGTH}
-                  onValueChange={(nextBody) => setEditingPost({ id: post.id, body: nextBody })}
+                  onValueChange={(nextBody) =>
+                    setEditingPost((current) => (current ? { ...current, body: nextBody } : current))
+                  }
                   enableMentions
+                  enableGifPicker
+                  gif={editingPost.gif}
+                  onGifSelect={(nextGif) =>
+                    setEditingPost((current) => (current ? { ...current, gif: nextGif } : current))
+                  }
                 />
                 <div className="action-cluster">
                   <button type="button" className="btn-primary" onClick={() => void savePostEdit()}>
@@ -432,7 +470,7 @@ export default function FeedPage() {
                               type="button"
                               className="w-full rounded-xl px-3 py-2 text-left text-sm hover:bg-slate-800"
                               onClick={() => {
-                                setEditingPost({ id: post.id, body: post.body });
+                                setEditingPost({ id: post.id, body: post.body, gif: toGifAttachment(post) });
                                 setMenuFor(null);
                               }}
                             >
@@ -460,6 +498,7 @@ export default function FeedPage() {
                 onBookmark={() => void interact(postId, "bookmark")}
                 onRepost={canRepost ? () => void interact(postId, "repost") : undefined}
                 disabledActions={pendingActions[postId]}
+                showGifs={showGifs}
               >
                 <div className="mt-6 space-y-3 border-t border-line pt-5">
                   {commentsLoadingPostId === postId ? (
@@ -473,6 +512,7 @@ export default function FeedPage() {
                     const editingValue = editingComment[comment.id];
                     const replyOpen = !!replyOpenByComment[comment.id];
                     const replies = comment.replies || [];
+                    const commentGif = toGifAttachment(comment);
 
                     return (
                         <div key={comment.id} className="subtle-panel p-4">
@@ -486,7 +526,10 @@ export default function FeedPage() {
                               <button
                                 type="button"
                                 className="btn-secondary min-h-0 px-3 py-2 text-xs"
-                                onClick={() => setEditingComment((prev) => ({ ...prev, [comment.id]: comment.body }))}
+                                onClick={() => {
+                                  setEditingComment((prev) => ({ ...prev, [comment.id]: comment.body }));
+                                  setEditingCommentGif((prev) => ({ ...prev, [comment.id]: commentGif }));
+                                }}
                               >
                                 Edit
                               </button>
@@ -509,6 +552,11 @@ export default function FeedPage() {
                               value={editingValue}
                               onValueChange={(nextBody) => setEditingComment((prev) => ({ ...prev, [comment.id]: nextBody }))}
                               enableMentions
+                              enableGifPicker
+                              gif={editingCommentGif[comment.id] || null}
+                              onGifSelect={(nextGif) =>
+                                setEditingCommentGif((prev) => ({ ...prev, [comment.id]: nextGif }))
+                              }
                             />
                             <div className="action-cluster">
                               <button type="button" className="btn-primary" onClick={() => void saveCommentEdit(comment.id, postId)}>
@@ -523,6 +571,11 @@ export default function FeedPage() {
                                     delete next[comment.id];
                                     return next;
                                   })
+                                  setEditingCommentGif((prev) => {
+                                    const next = { ...prev };
+                                    delete next[comment.id];
+                                    return next;
+                                  })
                                 }
                               >
                                 Cancel
@@ -530,9 +583,12 @@ export default function FeedPage() {
                             </div>
                           </div>
                         ) : (
-                          <p className="content-wrap mt-2 text-sm leading-6 text-slate-300">
-                            <AutoLinkedText text={comment.body} />
-                          </p>
+                          <>
+                            <p className="content-wrap mt-2 text-sm leading-6 text-slate-300">
+                              <AutoLinkedText text={comment.body} />
+                            </p>
+                            {commentGif ? <GifAttachment gif={commentGif} showByDefault={showGifs} className="mt-3" /> : null}
+                          </>
                         )}
 
                         <div className="mt-3">
@@ -555,6 +611,11 @@ export default function FeedPage() {
                               value={replyByComment[comment.id] || ""}
                               onValueChange={(nextBody) => setReplyByComment((prev) => ({ ...prev, [comment.id]: nextBody }))}
                               enableMentions
+                              enableGifPicker
+                              gif={replyGifByComment[comment.id] || null}
+                              onGifSelect={(nextGif) =>
+                                setReplyGifByComment((prev) => ({ ...prev, [comment.id]: nextGif }))
+                              }
                             />
                             <button
                               type="button"
@@ -571,6 +632,7 @@ export default function FeedPage() {
                             {replies.map((reply) => {
                               const canEditReply = meId === reply.author.id;
                               const editingReplyValue = editingComment[reply.id];
+                              const replyGif = toGifAttachment(reply);
                               return (
                                 <div key={reply.id} className="subtle-panel p-4 sm:ml-2">
                                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -583,9 +645,10 @@ export default function FeedPage() {
                                         <button
                                           type="button"
                                           className="btn-secondary min-h-0 px-3 py-2 text-xs"
-                                          onClick={() =>
-                                            setEditingComment((prev) => ({ ...prev, [reply.id]: reply.body }))
-                                          }
+                                          onClick={() => {
+                                            setEditingComment((prev) => ({ ...prev, [reply.id]: reply.body }));
+                                            setEditingCommentGif((prev) => ({ ...prev, [reply.id]: replyGif }));
+                                          }}
                                         >
                                           Edit
                                         </button>
@@ -607,6 +670,11 @@ export default function FeedPage() {
                                         value={editingReplyValue}
                                         onValueChange={(nextBody) => setEditingComment((prev) => ({ ...prev, [reply.id]: nextBody }))}
                                         enableMentions
+                                        enableGifPicker
+                                        gif={editingCommentGif[reply.id] || null}
+                                        onGifSelect={(nextGif) =>
+                                          setEditingCommentGif((prev) => ({ ...prev, [reply.id]: nextGif }))
+                                        }
                                       />
                                       <div className="action-cluster">
                                         <button
@@ -625,6 +693,11 @@ export default function FeedPage() {
                                               delete next[reply.id];
                                               return next;
                                             })
+                                            setEditingCommentGif((prev) => {
+                                              const next = { ...prev };
+                                              delete next[reply.id];
+                                              return next;
+                                            })
                                           }
                                         >
                                           Cancel
@@ -632,9 +705,12 @@ export default function FeedPage() {
                                       </div>
                                     </div>
                                   ) : (
-                                    <p className="content-wrap mt-2 text-sm leading-6 text-slate-300">
-                                      <AutoLinkedText text={reply.body} />
-                                    </p>
+                                    <>
+                                      <p className="content-wrap mt-2 text-sm leading-6 text-slate-300">
+                                        <AutoLinkedText text={reply.body} />
+                                      </p>
+                                      {replyGif ? <GifAttachment gif={replyGif} showByDefault={showGifs} className="mt-3" /> : null}
+                                    </>
                                   )}
                                 </div>
                               );
@@ -652,6 +728,11 @@ export default function FeedPage() {
                       value={newCommentByPost[postId] || ""}
                       onValueChange={(nextBody) => setNewCommentByPost((prev) => ({ ...prev, [postId]: nextBody }))}
                       enableMentions
+                      enableGifPicker
+                      gif={newCommentGifByPost[postId] || null}
+                      onGifSelect={(nextGif) =>
+                        setNewCommentGifByPost((prev) => ({ ...prev, [postId]: nextGif }))
+                      }
                     />
                     <button type="button" className="btn-secondary w-full sm:w-auto" onClick={() => void addComment(postId)}>
                       Comment

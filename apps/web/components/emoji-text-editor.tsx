@@ -1,7 +1,9 @@
 "use client";
 
+import { GifPickerPopover } from "@/components/gif-picker-popover";
 import { SmileIcon } from "@/components/icons";
 import { apiRequest } from "@/lib/api";
+import type { GifAttachment } from "@/lib/gifs";
 import type { ChangeEventHandler, FocusEventHandler } from "react";
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -39,6 +41,9 @@ type EmojiTextEditorProps = {
   rows?: number;
   ariaLabel?: string;
   enableMentions?: boolean;
+  enableGifPicker?: boolean;
+  gif?: GifAttachment | null;
+  onGifSelect?: (gif: GifAttachment | null) => void;
 };
 
 const VALID_MENTION_CHAR = /[a-z0-9._-]/i;
@@ -61,8 +66,12 @@ export function EmojiTextEditor({
   rows,
   ariaLabel,
   enableMentions = false,
+  enableGifPicker = false,
+  gif = null,
+  onGifSelect,
 }: EmojiTextEditorProps) {
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [gifPickerOpen, setGifPickerOpen] = useState(false);
   const [pickerModule, setPickerModule] = useState<EmojiPickerModule | null>(null);
   const [pickerPosition, setPickerPosition] = useState<PickerPosition | null>(null);
   const [mentionMatch, setMentionMatch] = useState<MentionMatch | null>(null);
@@ -71,9 +80,11 @@ export function EmojiTextEditor({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<EditorElement | null>(null);
   const pickerRef = useRef<HTMLDivElement | null>(null);
-  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const emojiTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const gifTriggerRef = useRef<HTMLButtonElement | null>(null);
   const selectionRef = useRef({ start: value.length, end: value.length });
   const pickerId = useId();
+  const gifPickerEnabled = enableGifPicker && !!onGifSelect;
 
   useEffect(() => {
     if (!pickerOpen || pickerModule) {
@@ -138,7 +149,7 @@ export function EmojiTextEditor({
     }
 
     const updatePickerPosition = () => {
-      const trigger = triggerRef.current;
+      const trigger = emojiTriggerRef.current;
 
       if (!trigger) {
         return;
@@ -214,6 +225,7 @@ export function EmojiTextEditor({
   useEffect(() => {
     if (mentionMatch) {
       setPickerOpen(false);
+      setGifPickerOpen(false);
     }
   }, [mentionMatch]);
 
@@ -358,7 +370,7 @@ export function EmojiTextEditor({
       : null;
 
   const sharedProps = {
-    className: `${className} emoji-editor-field`.trim(),
+    className: `${className} emoji-editor-field ${gifPickerEnabled ? "emoji-editor-field-with-gif" : ""}`.trim(),
     placeholder,
     value,
     maxLength,
@@ -376,67 +388,130 @@ export function EmojiTextEditor({
   return (
     <>
       <div ref={containerRef} className="emoji-editor">
-        {multiline ? (
-          <textarea
-            ref={(node) => {
-              inputRef.current = node;
-            }}
-            rows={rows}
-            {...sharedProps}
-          />
-        ) : (
-          <input
-            ref={(node) => {
-              inputRef.current = node;
-            }}
-            type="text"
-            {...sharedProps}
-          />
-        )}
+        <div className="emoji-editor-shell">
+          {multiline ? (
+            <textarea
+              ref={(node) => {
+                inputRef.current = node;
+              }}
+              rows={rows}
+              {...sharedProps}
+            />
+          ) : (
+            <input
+              ref={(node) => {
+                inputRef.current = node;
+              }}
+              type="text"
+              {...sharedProps}
+            />
+          )}
 
-        <button
-          ref={triggerRef}
-          type="button"
-          className={`emoji-trigger ${multiline ? "emoji-trigger-multiline" : ""} ${pickerOpen ? "is-open" : ""}`.trim()}
-          aria-label="Insert emoji"
-          aria-expanded={pickerOpen}
-          aria-controls={pickerOpen ? pickerId : undefined}
-          title="Insert emoji"
-          onMouseDown={(event) => {
-            event.preventDefault();
-            rememberSelection();
-          }}
-          onClick={() => {
-            setMentionMatch(null);
-            setMentionSuggestions([]);
-            setPickerOpen((current) => !current);
-          }}
-        >
-          <SmileIcon size={18} />
-        </button>
-
-        {showMentionSuggestions ? (
-          <div className="mention-suggestions menu-pop" role="listbox" aria-label="Mention suggestions">
-            {mentionSuggestions.map((suggestion) => (
+          <div
+            className={`emoji-editor-toolbar ${multiline ? "emoji-editor-toolbar-multiline" : ""}`.trim()}
+          >
+            {gifPickerEnabled ? (
               <button
-                key={suggestion.id}
+                ref={gifTriggerRef}
                 type="button"
-                className="mention-suggestion"
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => insertMention(suggestion)}
+                className={`emoji-trigger gif-trigger ${gifPickerOpen ? "is-open" : ""}`.trim()}
+                aria-label="Insert GIF"
+                aria-expanded={gifPickerOpen}
+                title="Insert GIF"
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  rememberSelection();
+                }}
+                onClick={() => {
+                  setMentionMatch(null);
+                  setMentionSuggestions([]);
+                  setPickerOpen(false);
+                  setGifPickerOpen((current) => !current);
+                }}
               >
-                <span className="mention-suggestion-copy">
-                  <span className="mention-suggestion-username">@{suggestion.username}</span>
-                  <span className="mention-suggestion-name">{suggestion.name}</span>
-                </span>
+                <span>GIF</span>
               </button>
-            ))}
-            {mentionLoading ? <div className="mention-suggestion-empty">Searching users...</div> : null}
+            ) : null}
+
+            <button
+              ref={emojiTriggerRef}
+              type="button"
+              className={`emoji-trigger ${pickerOpen ? "is-open" : ""}`.trim()}
+              aria-label="Insert emoji"
+              aria-expanded={pickerOpen}
+              aria-controls={pickerOpen ? pickerId : undefined}
+              title="Insert emoji"
+              onMouseDown={(event) => {
+                event.preventDefault();
+                rememberSelection();
+              }}
+              onClick={() => {
+                setMentionMatch(null);
+                setMentionSuggestions([]);
+                setGifPickerOpen(false);
+                setPickerOpen((current) => !current);
+              }}
+            >
+              <SmileIcon size={18} />
+            </button>
+          </div>
+
+          {showMentionSuggestions ? (
+            <div className="mention-suggestions menu-pop" role="listbox" aria-label="Mention suggestions">
+              {mentionSuggestions.map((suggestion) => (
+                <button
+                  key={suggestion.id}
+                  type="button"
+                  className="mention-suggestion"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => insertMention(suggestion)}
+                >
+                  <span className="mention-suggestion-copy">
+                    <span className="mention-suggestion-username">@{suggestion.username}</span>
+                    <span className="mention-suggestion-name">{suggestion.name}</span>
+                  </span>
+                </button>
+              ))}
+              {mentionLoading ? <div className="mention-suggestion-empty">Searching users...</div> : null}
+            </div>
+          ) : null}
+        </div>
+
+        {gifPickerEnabled && gif?.url ? (
+          <div className="gif-composer-preview">
+            <img
+              src={gif.url}
+              alt={gif.alt || "GIF reaction"}
+              loading="lazy"
+              className="gif-composer-preview-image"
+            />
+            <div className="gif-composer-preview-copy">
+              <span className="gif-composer-preview-label">GIF attached</span>
+              <button
+                type="button"
+                className="gif-composer-remove"
+                onClick={() => onGifSelect?.(null)}
+              >
+                Remove
+              </button>
+            </div>
           </div>
         ) : null}
       </div>
 
       {pickerPortal}
+
+      {gifPickerEnabled ? (
+        <GifPickerPopover
+          open={gifPickerOpen}
+          anchorRef={gifTriggerRef}
+          onClose={() => setGifPickerOpen(false)}
+          onSelect={(nextGif) => {
+            onGifSelect?.(nextGif);
+            setGifPickerOpen(false);
+          }}
+        />
+      ) : null}
     </>
   );
 }

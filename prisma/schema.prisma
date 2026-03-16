@@ -21,6 +21,7 @@ model User {
   email          String   @unique
   username       String   @unique
   passwordHash   String
+  showGifs       Boolean  @default(true) @map("show_gifs")
   verified       Boolean  @default(false)
   emailVerifiedAt DateTime?
   name           String
@@ -61,6 +62,8 @@ model User {
 model Post {
   id          String      @id @default(cuid())
   body        String
+  gifUrl      String?
+  gifAlt      String?
   codeBlock   String?
   codeLang    String?
   imageUrl    String?
@@ -193,6 +196,8 @@ model SnippetTag {
 model Comment {
   id        String   @id @default(cuid())
   body      String
+  gifUrl    String?
+  gifAlt    String?
   createdAt DateTime @default(now())
 
   postId    String
@@ -209,6 +214,8 @@ model Comment {
 model ArticleComment {
   id        String   @id @default(cuid())
   body      String
+  gifUrl    String?
+  gifAlt    String?
   createdAt DateTime @default(now())
 
   articleId String

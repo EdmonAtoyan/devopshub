@@ -1,4 +1,5 @@
 import type { PostCardData } from "@/components/post-card";
+import { toGifAttachment } from "@/lib/gifs";
 
 export type PostViewerState = {
   liked: boolean;
@@ -20,6 +21,8 @@ type InteractionCarrier = {
   viewCount: number;
   author: { id?: string; username: string; verified?: boolean; name?: string };
   body: string;
+  gifUrl?: string | null;
+  gifAlt?: string | null;
   createdAt: string;
   tags: { tag: { name: string } }[];
   _count: InteractionCounts;
@@ -32,6 +35,7 @@ export function toPostCardData(post: InteractionCarrier, commentCount?: number):
   return {
     id: post.id,
     body: post.body,
+    gif: toGifAttachment(post),
     createdAt: post.createdAt,
     author: post.author,
     tags: post.tags.map((entry) => ({ name: entry.tag.name })),
