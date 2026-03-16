@@ -9,6 +9,7 @@
     "lint": "eslint . --ext .ts,.tsx --max-warnings=0"
   },
   "dependencies": {
+    "emoji-picker-react": "^4.18.0",
     "next": "15.0.3",
     "react": "19.0.0",
     "react-dom": "19.0.0"

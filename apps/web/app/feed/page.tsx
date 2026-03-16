@@ -1,6 +1,7 @@
 "use client";
 
 import { AutoLinkedText } from "@/components/auto-linked-text";
+import { EmojiTextEditor } from "@/components/emoji-text-editor";
 import { Shell } from "@/components/shell";
 import { MoreHorizontalIcon } from "@/components/icons";
 import { PostCard } from "@/components/post-card";
@@ -344,12 +345,13 @@ export default function FeedPage() {
           </div>
 
           <form className="space-y-4" onSubmit={createPost}>
-            <textarea
+            <EmojiTextEditor
+              multiline
               className="input min-h-32"
               placeholder="Share an incident lesson, IaC pattern, or deployment update..."
               value={body}
               maxLength={POST_BODY_MAX_LENGTH}
-              onChange={(event) => setBody(event.target.value)}
+              onValueChange={setBody}
             />
             <div className="form-actions">
               <button className="btn-primary w-full sm:w-auto">Post</button>
@@ -379,11 +381,12 @@ export default function FeedPage() {
           <article key={post.id} className="page-enter">
             {editingPost?.id === post.id ? (
               <div className="page-section space-y-3">
-                <textarea
+                <EmojiTextEditor
+                  multiline
                   className="input min-h-32"
                   value={editingPost.body}
                   maxLength={POST_BODY_MAX_LENGTH}
-                  onChange={(event) => setEditingPost({ id: post.id, body: event.target.value })}
+                  onValueChange={(nextBody) => setEditingPost({ id: post.id, body: nextBody })}
                 />
                 <div className="action-cluster">
                   <button type="button" className="btn-primary" onClick={() => void savePostEdit()}>
@@ -498,15 +501,11 @@ export default function FeedPage() {
 
                         {editingValue !== undefined ? (
                           <div className="mt-3 space-y-3">
-                            <textarea
+                            <EmojiTextEditor
+                              multiline
                               className="input min-h-20"
                               value={editingValue}
-                              onChange={(event) =>
-                                setEditingComment((prev) => ({
-                                  ...prev,
-                                  [comment.id]: event.target.value,
-                                }))
-                              }
+                              onValueChange={(nextBody) => setEditingComment((prev) => ({ ...prev, [comment.id]: nextBody }))}
                             />
                             <div className="action-cluster">
                               <button type="button" className="btn-primary" onClick={() => void saveCommentEdit(comment.id, postId)}>
@@ -547,13 +546,11 @@ export default function FeedPage() {
 
                         {replyOpen ? (
                           <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-end">
-                            <input
+                            <EmojiTextEditor
                               className="input"
                               placeholder="Write a reply"
                               value={replyByComment[comment.id] || ""}
-                              onChange={(event) =>
-                                setReplyByComment((prev) => ({ ...prev, [comment.id]: event.target.value }))
-                              }
+                              onValueChange={(nextBody) => setReplyByComment((prev) => ({ ...prev, [comment.id]: nextBody }))}
                             />
                             <button
                               type="button"
@@ -600,15 +597,11 @@ export default function FeedPage() {
                                   </div>
                                   {editingReplyValue !== undefined ? (
                                     <div className="mt-3 space-y-3">
-                                      <textarea
+                                      <EmojiTextEditor
+                                        multiline
                                         className="input min-h-20"
                                         value={editingReplyValue}
-                                        onChange={(event) =>
-                                          setEditingComment((prev) => ({
-                                            ...prev,
-                                            [reply.id]: event.target.value,
-                                          }))
-                                        }
+                                        onValueChange={(nextBody) => setEditingComment((prev) => ({ ...prev, [reply.id]: nextBody }))}
                                       />
                                       <div className="action-cluster">
                                         <button
@@ -648,11 +641,11 @@ export default function FeedPage() {
                   })}
 
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-                    <input
+                    <EmojiTextEditor
                       className="input"
                       placeholder="Add a comment"
                       value={newCommentByPost[postId] || ""}
-                      onChange={(event) => setNewCommentByPost((prev) => ({ ...prev, [postId]: event.target.value }))}
+                      onValueChange={(nextBody) => setNewCommentByPost((prev) => ({ ...prev, [postId]: nextBody }))}
                     />
                     <button type="button" className="btn-secondary w-full sm:w-auto" onClick={() => void addComment(postId)}>
                       Comment

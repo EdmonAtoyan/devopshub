@@ -255,6 +255,17 @@ export function CheckIcon(props: IconProps) {
   );
 }
 
+export function SmileIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M8.5 14.5a4.5 4.5 0 0 0 7 0" />
+      <path d="M9 10h.01" />
+      <path d="M15 10h.01" />
+    </IconBase>
+  );
+}
+
 export function MessageCircleIcon(props: IconProps) {
   return (
     <IconBase {...props}>

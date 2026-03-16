@@ -1,6 +1,7 @@
 "use client";
 
 import { AutoLinkedText } from "@/components/auto-linked-text";
+import { EmojiTextEditor } from "@/components/emoji-text-editor";
 import { Shell } from "@/components/shell";
 import { UsernameInline } from "@/components/verified-badge";
 import { apiRequest } from "@/lib/api";
@@ -160,7 +161,14 @@ export default function ArticlesPage() {
           </div>
           <form className="space-y-4" onSubmit={create}>
             <input className="input" placeholder="Article title" value={title} onChange={(event) => setTitle(event.target.value)} required />
-            <textarea className="input min-h-40" placeholder="Write in markdown..." value={body} onChange={(event) => setBody(event.target.value)} required />
+            <EmojiTextEditor
+              multiline
+              className="input min-h-40"
+              placeholder="Write in markdown..."
+              value={body}
+              onValueChange={setBody}
+              required
+            />
             <div className="form-actions">
               <span className="text-sm text-slate-400">Articles are best for durable knowledge, not quick thread-style updates.</span>
               <button className="btn-primary w-full sm:w-auto">Publish article</button>
@@ -201,10 +209,11 @@ export default function ArticlesPage() {
                   value={editingArticle.title}
                   onChange={(event) => setEditingArticle({ ...editingArticle, title: event.target.value })}
                 />
-                <textarea
+                <EmojiTextEditor
+                  multiline
                   className="input min-h-32"
                   value={editingArticle.body}
-                  onChange={(event) => setEditingArticle({ ...editingArticle, body: event.target.value })}
+                  onValueChange={(nextBody) => setEditingArticle((current) => (current ? { ...current, body: nextBody } : current))}
                 />
                 <div className="action-cluster">
                   <button type="button" className="btn-primary" onClick={() => void saveEdit()}>
@@ -275,10 +284,11 @@ export default function ArticlesPage() {
 
                     {editingValue !== undefined ? (
                       <div className="mt-3 space-y-3">
-                        <textarea
+                        <EmojiTextEditor
+                          multiline
                           className="input min-h-20"
                           value={editingValue}
-                          onChange={(event) => setEditingComment((prev) => ({ ...prev, [comment.id]: event.target.value }))}
+                          onValueChange={(nextBody) => setEditingComment((prev) => ({ ...prev, [comment.id]: nextBody }))}
                         />
                         <div className="action-cluster">
                           <button type="button" className="btn-primary" onClick={() => void saveCommentEdit(comment.id)}>
@@ -309,16 +319,11 @@ export default function ArticlesPage() {
               })}
 
               <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-                <input
+                <EmojiTextEditor
                   className="input"
                   placeholder="Add a comment"
                   value={newCommentByArticle[article.id] || ""}
-                  onChange={(event) =>
-                    setNewCommentByArticle((prev) => ({
-                      ...prev,
-                      [article.id]: event.target.value,
-                    }))
-                  }
+                  onValueChange={(nextBody) => setNewCommentByArticle((prev) => ({ ...prev, [article.id]: nextBody }))}
                 />
                 <button type="button" className="btn-secondary w-full sm:w-auto" onClick={() => void addComment(article.id)}>
                   Comment

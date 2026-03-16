@@ -205,6 +205,49 @@ html[data-theme="dark"] .global-loader-logo {
   outline-offset: 1px;
 }
 
+.emoji-editor {
+  @apply relative;
+}
+
+.emoji-editor-field {
+  padding-right: 3.5rem;
+}
+
+.emoji-trigger {
+  @apply absolute right-3 inline-flex h-8 w-8 items-center justify-center rounded-full border border-line text-slate-300;
+  top: 50%;
+  transform: translateY(-50%);
+  background: rgb(var(--panel));
+}
+
+.emoji-trigger:hover {
+  color: rgb(var(--text-100));
+  background: rgb(var(--hover-bg));
+}
+
+.emoji-trigger.is-open {
+  border-color: rgb(var(--accent) / 0.45);
+  color: rgb(var(--text-100));
+  background: rgb(var(--accent) / 0.12);
+}
+
+.emoji-trigger-multiline {
+  top: 0.875rem;
+  transform: none;
+}
+
+.emoji-picker-popover {
+  @apply absolute right-0 top-full z-30 mt-2 overflow-hidden rounded-2xl border border-line;
+  width: min(20rem, calc(100vw - 2rem));
+  background: rgb(var(--panel));
+  box-shadow: 0 22px 44px rgb(2 6 23 / 0.4);
+}
+
+.emoji-picker-loading {
+  @apply flex items-center justify-center px-4 py-6 text-sm text-slate-400;
+  min-height: 12rem;
+}
+
 textarea,
 pre,
 code {
