@@ -1,4 +1,4 @@
-import { Controller, Get, Query, ServiceUnavailableException, UseGuards } from "@nestjs/common";
+import { Controller, Get, Logger, OnModuleInit, Query, ServiceUnavailableException, UseGuards } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { CurrentUser } from "../../common/current-user.decorator";
 import { OptionalJwtAuthGuard } from "../../common/optional-jwt-auth.guard";
@@ -7,11 +7,20 @@ import { PrismaService } from "../../prisma.service";
 import { buildPostInclude, enrichPosts } from "../feed/post-query";
 
 @Controller("search")
-export class SearchController {
+export class SearchController implements OnModuleInit {
+  private readonly logger = new Logger(SearchController.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
   ) {}
+
+  onModuleInit() {
+    const apiKey = this.configService.get<string>("GIPHY_API_KEY")?.trim();
+    if (!apiKey) {
+      this.logger.warn("GIF search is disabled because GIPHY_API_KEY is not configured.");
+    }
+  }
 
   @Get("users")
   async searchUsers(@Query("q") q = "", @Query("limit") limit = "8") {
