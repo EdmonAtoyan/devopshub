@@ -59,5 +59,4 @@ jobs:
             else
               echo "GIPHY_API_KEY is not set in GitHub Actions secrets; skipping Giphy env injection."
             fi
-            docker compose down
             docker compose up -d --build
