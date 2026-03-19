@@ -29,7 +29,10 @@ A full-stack community platform for SREs, platform engineers, and cloud develope
 - `scripts/start-standalone.mjs`: production bootstrap for the standalone Node.js path
 - `docker-compose.yml`: full multi-container stack
 - `deploy/systemd/devops-hub.service`: sample `systemd` unit
-- `deploy/nginx/devops-hub.conf`: sample Nginx reverse proxy
+- `deploy/nginx/devops-hub.conf`: bootstrap HTTP Nginx reverse proxy for Certbot
+- `deploy/nginx/devops-hub.ssl.conf`: final Let's Encrypt-backed HTTPS Nginx config
+- `deploy/nginx/devops-hub.docker.conf`: bootstrap HTTP Nginx reverse proxy for the Docker Compose deployment
+- `deploy/nginx/devops-hub.docker.ssl.conf`: final Let's Encrypt-backed HTTPS config for the Docker Compose deployment
 - `docs/aws-ec2.md`: standalone EC2 deployment guide
 
 ## Requirements
@@ -191,6 +194,13 @@ For a simple VM or EC2 deployment:
 
 4. Put the web service behind Nginx or a load balancer and expose only the public web entrypoint.
 
+For host-level TLS termination, keep Let's Encrypt certificates on the server under `/etc/letsencrypt` instead of inside containers so they survive container restarts and image rebuilds.
+
+For a host Nginx reverse proxy in front of the Docker stack, use:
+
+- `deploy/nginx/devops-hub.docker.conf` to bootstrap Certbot over HTTP
+- `deploy/nginx/devops-hub.docker.ssl.conf` after the Let's Encrypt certificate is issued
+
 To inspect the API logs:
 
 ```bash
@@ -208,7 +218,6 @@ What it does on the instance:
 - fetches the latest code, hard-resets the worktree, and pulls `origin/main`
 - restores `.env`
 - injects optional GitHub Actions secrets into `.env`
-- runs `docker compose down`
 - runs `docker compose up -d --build`
 
 Required GitHub secrets:
@@ -229,7 +238,8 @@ If you prefer `npm start` behind `systemd` and Nginx instead of Docker:
 
 - follow [docs/aws-ec2.md](docs/aws-ec2.md)
 - use [deploy/systemd/devops-hub.service](deploy/systemd/devops-hub.service) as a starting unit
-- use [deploy/nginx/devops-hub.conf](deploy/nginx/devops-hub.conf) as a starting reverse-proxy config
+- use [deploy/nginx/devops-hub.conf](deploy/nginx/devops-hub.conf) to bootstrap Certbot over HTTP
+- use [deploy/nginx/devops-hub.ssl.conf](deploy/nginx/devops-hub.ssl.conf) after the Let's Encrypt certificate is issued
 
 ## Troubleshooting
 

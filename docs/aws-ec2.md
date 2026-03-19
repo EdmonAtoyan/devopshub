@@ -110,16 +110,21 @@ sudo systemctl status devops-hub
 
 ## 8. Configure Nginx
 
-Copy the sample config from [deploy/nginx/devops-hub.conf](../deploy/nginx/devops-hub.conf), then set your real hostname.
+Copy the bootstrap HTTP config from [deploy/nginx/devops-hub.conf](../deploy/nginx/devops-hub.conf), then set your real hostname.
+
+If you are adapting the sample for the Docker Compose deployment path instead of the standalone `npm start` path, update the `devops_hub_api` upstream from `127.0.0.1:3001` to `127.0.0.1:4000` before you install it.
 
 Install it:
 
 ```bash
+sudo mkdir -p /var/www/certbot
 sudo cp deploy/nginx/devops-hub.conf /etc/nginx/sites-available/devops-hub
 sudo ln -s /etc/nginx/sites-available/devops-hub /etc/nginx/sites-enabled/devops-hub
 sudo nginx -t
 sudo systemctl reload nginx
 ```
+
+If Ubuntu's default Nginx site is still enabled, disable it before you reload Nginx so it does not serve the wrong virtual host or certificate.
 
 The sample config sends:
 
@@ -146,7 +151,46 @@ Expected results:
 
 ## 10. HTTPS
 
-After the HTTP path works, add TLS with Certbot or your preferred certificate manager and update:
+After the HTTP path works, add TLS with Let's Encrypt and Certbot.
+
+Install Certbot:
+
+```bash
+sudo apt install -y certbot python3-certbot-nginx
+```
+
+Request the certificate using the host webroot:
+
+```bash
+sudo certbot certonly --webroot -w /var/www/certbot -d community.example.com
+```
+
+For a `www` hostname, request both names together:
+
+```bash
+sudo certbot certonly --webroot -w /var/www/certbot -d community.example.com -d www.community.example.com
+```
+
+Then switch Nginx to the final HTTPS config from [deploy/nginx/devops-hub.ssl.conf](../deploy/nginx/devops-hub.ssl.conf), replacing the sample hostname with your real domain first. If you are using the Docker Compose deployment path, also change the `devops_hub_api` upstream to `127.0.0.1:4000`.
+
+Install the HTTPS config and reload Nginx:
+
+```bash
+sudo cp deploy/nginx/devops-hub.ssl.conf /etc/nginx/sites-available/devops-hub
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+The certificate and private key stay on the EC2 host under `/etc/letsencrypt/live/<your-domain>/`, not inside Docker containers, so they persist across container restarts and image rebuilds.
+
+Verify automatic renewal:
+
+```bash
+sudo systemctl list-timers | grep certbot
+sudo certbot renew --dry-run
+```
+
+After HTTPS is active, update:
 
 - `NEXT_PUBLIC_SITE_URL`
 - `RESET_PASSWORD_BASE_URL`
