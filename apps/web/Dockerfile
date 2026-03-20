@@ -12,12 +12,6 @@ FROM deps AS builder
 
 WORKDIR /app
 
-ARG API_UPSTREAM_URL=http://api:4000
-ARG NEXT_PUBLIC_API_URL=/api
-
-ENV API_UPSTREAM_URL=$API_UPSTREAM_URL
-ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
-
 COPY apps/web apps/web
 
 RUN npm --workspace @devops-community/web run build
@@ -27,6 +21,10 @@ FROM node:20 AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
+ENV PORT=3000
+ENV NEXT_PUBLIC_API_URL=/
+ENV NEXT_PUBLIC_LEGACY_API_URL=/api
+ENV API_UPSTREAM_URL=http://127.0.0.1:4000
 
 COPY package.json package-lock.json ./
 COPY --from=builder /app/node_modules ./node_modules

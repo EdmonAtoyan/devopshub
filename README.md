@@ -1,106 +1,45 @@
 # DevOps Community Platform
 
-A full-stack community platform for SREs, platform engineers, and cloud developers. The repo ships as a small monorepo with a Next.js web app, a NestJS API, Prisma/PostgreSQL data layer, and deployment paths for both Docker Compose and a standalone Node.js server.
+A Kubernetes-first monorepo for a DevOps-focused community platform. The browser always talks to the app through same-origin routes, while local development and Kubernetes production each wire `/api`, `/uploads`, and `/socket.io` to the NestJS API in the right place.
 
-## What It Includes
+## Architecture
 
-- Email/password authentication with email verification and password reset
-- Optional Google OAuth login
-- Social feed with posts, comments, reposts, likes, bookmarks, tags, mentions, code blocks, links, and GIFs
-- Articles, code snippets, tool directory, user profiles, and saved content
-- Live notifications over Socket.IO
-- Avatar uploads and static asset serving
-- Curated DevOps news aggregation from external RSS feeds
-- Search across users, posts, articles, tools, tags, and GIFs
+- `apps/web`: Next.js 15 frontend that serves the UI and proxies API, uploads, and realtime traffic
+- `apps/api`: NestJS 10 backend for auth, feed, articles, snippets, notifications, uploads, and search
+- `prisma/`: shared Prisma schema, migrations, and seed data
+- `deploy/k8s/`: Kubernetes namespace, config, deployment, service, PVC, and ingress manifests
+- `scripts/`: local helper scripts such as the standalone production-like bootstrap
 
-## Stack
+Public traffic pattern:
 
-- `apps/web`: Next.js 15 + React 19
-- `apps/api`: NestJS 10 + Prisma 5
-- PostgreSQL 16
-- Redis 7 in the Docker Compose stack
-- Docker Compose for the containerized deployment path
+- local development: browser -> `http://localhost:3000` -> Next.js rewrites -> `http://127.0.0.1:4000`
+- production: browser -> ingress -> `/api`, `/uploads`, `/socket.io` routed to API service, `/` routed to web service
 
 ## Repository Layout
 
-- `apps/web`: frontend application
-- `apps/api`: backend API
-- `prisma/schema.prisma`: database schema
-- `scripts/start-standalone.mjs`: production bootstrap for the standalone Node.js path
-- `docker-compose.yml`: full multi-container stack
-- `deploy/systemd/devops-hub.service`: sample `systemd` unit
-- `deploy/nginx/devops-hub.conf`: bootstrap HTTP Nginx reverse proxy for Certbot
-- `deploy/nginx/devops-hub.ssl.conf`: final Let's Encrypt-backed HTTPS Nginx config
-- `deploy/nginx/devops-hub.docker.conf`: bootstrap HTTP Nginx reverse proxy for the Docker Compose deployment
-- `deploy/nginx/devops-hub.docker.ssl.conf`: final Let's Encrypt-backed HTTPS config for the Docker Compose deployment
-- `docs/aws-ec2.md`: standalone EC2 deployment guide
+- `apps/api`
+- `apps/web`
+- `deploy/k8s`
+- `prisma`
+- `scripts`
 
 ## Requirements
 
 - Node.js 20+
 - npm 10+
 - PostgreSQL 16 or compatible PostgreSQL service
-- Docker and Docker Compose if you want the containerized path
+- Docker if you want to build production images locally
+- `kubectl` with access to your target cluster for deployment
 
-## Quick Start With Docker Compose
+## Local Development
 
-1. Copy the environment template:
-
-   ```bash
-   cp .env.example .env
-   ```
-
-2. Update the important values in `.env`:
-
-   - `JWT_SECRET`
-   - `NEXT_PUBLIC_SITE_URL`
-   - `RESET_PASSWORD_BASE_URL`
-   - `EMAIL_VERIFICATION_BASE_URL`
-   - `SMTP_*` or `RESEND_API_KEY` plus `RESEND_FROM` if you want real email delivery
-
-3. Start the stack:
-
-   ```bash
-   docker compose up -d --build
-   ```
-
-4. Open the app at `http://localhost:3000`.
-
-Container ports:
-
-- Web: `3000`
-- API: `4000`
-- Postgres: `5432`
-- Redis: `6379`
-
-Useful health check:
-
-```bash
-curl http://localhost:4000/api/health
-```
-
-If you already have an old Postgres volume with different credentials, reset it once:
-
-```bash
-docker compose down -v
-docker compose up -d --build
-```
-
-## Local Development With Node.js
-
-Use this path when you want to run the apps directly instead of inside containers.
-
-1. Start supporting services, or point `DATABASE_URL` at an existing PostgreSQL instance:
-
-   ```bash
-   docker compose up -d postgres redis
-   ```
-
-2. Copy the env file and review the defaults:
+1. Copy the env template:
 
    ```bash
    cp .env.example .env
    ```
+
+2. Set at least `DATABASE_URL` and `JWT_SECRET`.
 
 3. Install dependencies:
 
@@ -108,13 +47,13 @@ Use this path when you want to run the apps directly instead of inside container
    npm ci
    ```
 
-4. Generate the Prisma client and run migrations:
+4. Generate Prisma client and apply migrations:
 
    ```bash
    npm run db:migrate
    ```
 
-5. Start the apps in separate terminals:
+5. Start the API and web app in separate terminals:
 
    ```bash
    npm run dev:api
@@ -123,127 +62,108 @@ Use this path when you want to run the apps directly instead of inside container
 
 Local defaults:
 
-- Web: `http://localhost:3000`
-- API: `http://localhost:3001`
-- API health: `http://localhost:3001/api/health`
+- web: `http://localhost:3000`
+- api: `http://localhost:4000`
+- browser-facing API base: `/api`
+- direct API health check: `curl http://localhost:4000/api/health`
 
-Helpful database commands:
-
-```bash
-npm run db:generate
-npm run db:studio
-```
-
-## Production-Like Local Start
-
-The root start script boots both services from one command:
+For a production-like local boot path:
 
 ```bash
 npm run build
-npm start
+npm run start:standalone
 ```
 
-`npm start`:
+## Docker Builds
 
-- loads `.env` if present
-- defaults `NODE_ENV` to `production`
-- uses `API_PORT=3001` and `PORT=3000` unless you override them
-- builds missing web or API artifacts automatically
-- runs `prisma migrate deploy`
-- starts the API and web processes together
+Build both production images:
+
+```bash
+npm run docker:build
+```
+
+Or build them individually:
+
+```bash
+npm run docker:build:api
+npm run docker:build:web
+```
+
+Runtime expectations:
+
+- API image expects `DATABASE_URL`, `JWT_SECRET`, and the public site URLs
+- web image expects `NEXT_PUBLIC_API_URL=/api`
+- set `API_UPSTREAM_URL` at runtime for the web container, for example `http://devops-community-api:4000` in Kubernetes
+
+## Kubernetes Deployment
+
+1. Copy the example secret and fill in real values:
+
+   ```bash
+   cp deploy/k8s/secret.example.yaml deploy/k8s/secret.yaml
+   ```
+
+2. Update the image references in:
+
+- `deploy/k8s/api-deployment.yaml`
+- `deploy/k8s/web-deployment.yaml`
+
+3. Replace the placeholders in:
+
+- `deploy/k8s/configmap.yaml`
+- `deploy/k8s/ingress.yaml`
+
+Required placeholders:
+
+- `__PUBLIC_SITE_URL__`: the public origin, for example `https://community.example.com`
+- `__INGRESS_HOST__`: the hostname used by the ingress rule
+
+4. Apply the manifests:
+
+   ```bash
+   kubectl apply -f deploy/k8s/secret.yaml
+   kubectl apply -k deploy/k8s
+   ```
+
+5. Verify rollout:
+
+   ```bash
+   kubectl -n devops-community rollout status deployment/devops-community-api
+   kubectl -n devops-community rollout status deployment/devops-community-web
+   kubectl -n devops-community get ingress,svc,pods
+   ```
+
+Notes:
+
+- the ingress expects a TLS secret named `devops-community-tls`
+- uploads are stored on the API PVC declared in `deploy/k8s/api-pvc.yaml`
+- the API callback URL for Google OAuth defaults to `${NEXT_PUBLIC_SITE_URL}/api/auth/google/callback`
+
+## CI/CD
+
+`.github/workflows/deploy.yml` now builds and publishes the API and web images to GHCR on every push to `main`.
+
+When you run the workflow manually with `workflow_dispatch`, it can also apply the Kubernetes manifests after rendering the public host placeholders. Configure:
+
+- secret: `KUBE_CONFIG_DATA` as a base64-encoded kubeconfig
+- variable: `PUBLIC_SITE_URL`
+- variable: `INGRESS_HOST`
+
+The deploy step assumes the cluster already has a `devops-community-secrets` secret or that you manage `deploy/k8s/secret.yaml` separately.
 
 ## Environment Notes
 
-Common variables to review:
+Common settings:
 
-- `DATABASE_URL`: PostgreSQL connection string
-- `JWT_SECRET`: signing secret for auth tokens
-- `NEXT_PUBLIC_SITE_URL`: public site origin
-- `RESET_PASSWORD_BASE_URL`: base URL used in reset emails
-- `EMAIL_VERIFICATION_BASE_URL`: base URL used in verification emails
-- `NEXT_PUBLIC_API_URL`: browser-facing API base, usually `/api`
-- `API_UPSTREAM_URL`: server-side proxy target for Next.js rewrites
-- `CORS_ORIGIN`: mainly relevant for direct API access or reverse-proxy deployments
+- `NEXT_PUBLIC_API_URL`: optional browser API base, defaults to `/api`
+- `API_UPSTREAM_URL`: server-side rewrite target for the web app
+- `NEXT_PUBLIC_SITE_URL`: public site origin used for redirects and links
+- `CORS_ORIGIN`: allowed browser origins for direct API access
+- `GOOGLE_CALLBACK_URL`: optional override when the default callback needs to differ from the public site URL
 
 Optional integrations:
 
-- `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_CALLBACK_URL` for Google OAuth
-- `SMTP_*` or `RESEND_API_KEY` plus `RESEND_FROM` for email delivery
-- `GIPHY_API_KEY` for GIF search in posts and comments
-- `CAPTCHA_PROVIDER`, Turnstile keys, or reCAPTCHA keys for bot protection
-- `ALLOW_NGROK_ORIGINS` when testing through ngrok
-
-Google OAuth callback examples:
-
-- Docker Compose behind the web app proxy: `http://localhost:3000/api/auth/google/callback`
-- Standalone API directly on port `3001`: `http://localhost:3001/api/auth/google/callback`
-
-## Deployment Options
-
-### Docker Compose on a Single Server
-
-For a simple VM or EC2 deployment:
-
-1. Install Docker Engine and Docker Compose.
-2. Copy `.env.example` to `.env` and set production values.
-3. Run:
-
-   ```bash
-   docker compose up -d --build
-   ```
-
-4. Put the web service behind Nginx or a load balancer and expose only the public web entrypoint.
-
-For host-level TLS termination, keep Let's Encrypt certificates on the server under `/etc/letsencrypt` instead of inside containers so they survive container restarts and image rebuilds.
-
-For a host Nginx reverse proxy in front of the Docker stack, use:
-
-- `deploy/nginx/devops-hub.docker.conf` to bootstrap Certbot over HTTP
-- `deploy/nginx/devops-hub.docker.ssl.conf` after the Let's Encrypt certificate is issued
-
-To inspect the API logs:
-
-```bash
-docker logs --tail 100 newfolder-api-1
-```
-
-### GitHub Actions Deploy to EC2
-
-The workflow at `.github/workflows/deploy.yml` runs on every push to `main` and deploys over SSH.
-
-What it does on the instance:
-
-- changes into `~/devopshub`
-- backs up the existing `.env`
-- fetches the latest code, hard-resets the worktree, and pulls `origin/main`
-- restores `.env`
-- injects optional GitHub Actions secrets into `.env`
-- runs `docker compose up -d --build`
-
-Required GitHub secrets:
-
-- `EC2_HOST`
-- `EC2_USER`
-- `EC2_KEY`
-
-Optional GitHub secrets currently supported by the workflow:
-
-- `GOOGLE_CLIENT_ID`
-- `GOOGLE_CLIENT_SECRET`
+- `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`
+- `SMTP_*` or `RESEND_*`
 - `GIPHY_API_KEY`
-
-### Standalone Node.js on EC2
-
-If you prefer `npm start` behind `systemd` and Nginx instead of Docker:
-
-- follow [docs/aws-ec2.md](docs/aws-ec2.md)
-- use [deploy/systemd/devops-hub.service](deploy/systemd/devops-hub.service) as a starting unit
-- use [deploy/nginx/devops-hub.conf](deploy/nginx/devops-hub.conf) to bootstrap Certbot over HTTP
-- use [deploy/nginx/devops-hub.ssl.conf](deploy/nginx/devops-hub.ssl.conf) after the Let's Encrypt certificate is issued
-
-## Troubleshooting
-
-- If login cookies do not persist on plain HTTP during direct IP testing, the app automatically falls back to non-secure cookies until you move behind HTTPS.
-- If password reset or verification emails do not send, configure either `SMTP_*` or `RESEND_API_KEY` plus `RESEND_FROM`; otherwise the API only logs preview links locally.
-- If Google login fails, double-check that `GOOGLE_CALLBACK_URL` matches the public callback URL registered in Google Cloud.
-- If the app boots but the database schema is stale, run `npm run db:migrate` in development or `npm run db:migrate:deploy` for production-style updates.
+- `TURNSTILE_*` or `RECAPTCHA_*`

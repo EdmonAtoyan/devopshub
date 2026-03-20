@@ -1,62 +1,117 @@
-name: Deploy to EC2
+name: Build And Publish Containers
 
 on:
   push:
     branches:
       - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  API_IMAGE_NAME: devops-community-api
+  WEB_IMAGE_NAME: devops-community-web
 
 jobs:
-  deploy:
+  build-and-push:
     runs-on: ubuntu-latest
-
+    outputs:
+      api_image: ${{ steps.images.outputs.api_image }}
+      web_image: ${{ steps.images.outputs.web_image }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Deploy to EC2
-        uses: appleboy/ssh-action@v1.0.3
-        env:
-          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
-          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
-          GIPHY_API_KEY: ${{ secrets.GIPHY_API_KEY }}
+      - name: Normalize image owner
+        id: vars
+        run: echo "owner=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
         with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_KEY }}
-          envs: GOOGLE_CLIENT_ID,GOOGLE_CLIENT_SECRET,GIPHY_API_KEY
-          script: |
-            cd ~/devopshub
-            backup_env="$(mktemp)"
-            had_env_backup=0
-            if [ -f .env ]; then
-              cp .env "$backup_env"
-              had_env_backup=1
-            fi
-            git fetch origin
-            git reset --hard
-            git pull origin main
-            if [ "$had_env_backup" = "1" ]; then
-              cp "$backup_env" .env
-            fi
-            rm -f "$backup_env"
-            upsert_env() {
-              key="$1"
-              value="$2"
-              if grep -q "^${key}=" .env; then
-                sed -i "s|^${key}=.*|${key}=\"${value}\"|" .env
-              else
-                printf '%s=\"%s\"\n' "$key" "$value" >> .env
-              fi
-            }
-            if [ -n "$GOOGLE_CLIENT_ID" ] && [ -n "$GOOGLE_CLIENT_SECRET" ]; then
-              upsert_env GOOGLE_CLIENT_ID "$GOOGLE_CLIENT_ID"
-              upsert_env GOOGLE_CLIENT_SECRET "$GOOGLE_CLIENT_SECRET"
-            else
-              echo "GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET is not set in GitHub Actions secrets; skipping Google OAuth env injection."
-            fi
-            if [ -n "$GIPHY_API_KEY" ]; then
-              upsert_env GIPHY_API_KEY "$GIPHY_API_KEY"
-            else
-              echo "GIPHY_API_KEY is not set in GitHub Actions secrets; skipping Giphy env injection."
-            fi
-            docker compose up -d --build
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Define image tags
+        id: images
+        run: |
+          owner="${{ steps.vars.outputs.owner }}"
+          sha="${{ github.sha }}"
+          echo "api_image=ghcr.io/${owner}/${API_IMAGE_NAME}:${sha}" >> "$GITHUB_OUTPUT"
+          echo "api_latest=ghcr.io/${owner}/${API_IMAGE_NAME}:latest" >> "$GITHUB_OUTPUT"
+          echo "web_image=ghcr.io/${owner}/${WEB_IMAGE_NAME}:${sha}" >> "$GITHUB_OUTPUT"
+          echo "web_latest=ghcr.io/${owner}/${WEB_IMAGE_NAME}:latest" >> "$GITHUB_OUTPUT"
+
+      - name: Build API image
+        run: |
+          docker build \
+            -f apps/api/Dockerfile \
+            -t "${{ steps.images.outputs.api_image }}" \
+            -t "${{ steps.images.outputs.api_latest }}" \
+            .
+
+      - name: Build web image
+        run: |
+          docker build \
+            -f apps/web/Dockerfile \
+            -t "${{ steps.images.outputs.web_image }}" \
+            -t "${{ steps.images.outputs.web_latest }}" \
+            .
+
+      - name: Push API image
+        run: |
+          docker push "${{ steps.images.outputs.api_image }}"
+          docker push "${{ steps.images.outputs.api_latest }}"
+
+      - name: Push web image
+        run: |
+          docker push "${{ steps.images.outputs.web_image }}"
+          docker push "${{ steps.images.outputs.web_latest }}"
+
+  deploy-to-kubernetes:
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: latest
+
+      - name: Validate deployment settings
+        env:
+          KUBE_CONFIG_DATA: ${{ secrets.KUBE_CONFIG_DATA }}
+          PUBLIC_SITE_URL: ${{ vars.PUBLIC_SITE_URL }}
+          INGRESS_HOST: ${{ vars.INGRESS_HOST }}
+        run: |
+          test -n "$KUBE_CONFIG_DATA" || { echo "Missing secret: KUBE_CONFIG_DATA"; exit 1; }
+          test -n "$PUBLIC_SITE_URL" || { echo "Missing variable: PUBLIC_SITE_URL"; exit 1; }
+          test -n "$INGRESS_HOST" || { echo "Missing variable: INGRESS_HOST"; exit 1; }
+
+      - name: Configure kubeconfig
+        run: |
+          mkdir -p "$HOME/.kube"
+          echo "${{ secrets.KUBE_CONFIG_DATA }}" | base64 --decode > "$HOME/.kube/config"
+
+      - name: Render Kubernetes manifests
+        run: |
+          rm -rf /tmp/devops-community-k8s
+          cp -R deploy/k8s /tmp/devops-community-k8s
+          sed -i "s|ghcr.io/example/devops-community-api:latest|${{ needs.build-and-push.outputs.api_image }}|g" /tmp/devops-community-k8s/api-deployment.yaml
+          sed -i "s|ghcr.io/example/devops-community-web:latest|${{ needs.build-and-push.outputs.web_image }}|g" /tmp/devops-community-k8s/web-deployment.yaml
+          sed -i "s|__PUBLIC_SITE_URL__|${{ vars.PUBLIC_SITE_URL }}|g" /tmp/devops-community-k8s/configmap.yaml
+          sed -i "s|__INGRESS_HOST__|${{ vars.INGRESS_HOST }}|g" /tmp/devops-community-k8s/ingress.yaml
+
+      - name: Apply manifests
+        run: kubectl apply -k /tmp/devops-community-k8s
+
+      - name: Wait for rollouts
+        run: |
+          kubectl -n devops-community rollout status deployment/devops-community-api --timeout=180s
+          kubectl -n devops-community rollout status deployment/devops-community-web --timeout=180s

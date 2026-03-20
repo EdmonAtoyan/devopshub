@@ -2,7 +2,7 @@
   "name": "devops-community-platform",
   "private": true,
   "version": "0.1.0",
-  "description": "Standalone DevOps community platform",
+  "description": "Kubernetes-first DevOps community platform",
   "engines": {
     "node": ">=20.0.0"
   },
@@ -15,7 +15,10 @@
     "build": "npm run db:generate && npm run build:web && npm run build:api",
     "build:web": "npm --workspace @devops-community/web run build",
     "build:api": "npm --workspace @devops-community/api run build",
-    "start": "node scripts/start-standalone.mjs",
+    "start:standalone": "node scripts/start-standalone.mjs",
+    "docker:build": "npm run docker:build:api && npm run docker:build:web",
+    "docker:build:api": "docker build -f apps/api/Dockerfile -t devops-community-api .",
+    "docker:build:web": "docker build -f apps/web/Dockerfile -t devops-community-web .",
     "lint": "npm run lint:web && npm run lint:api",
     "lint:web": "npm --workspace @devops-community/web run lint",
     "lint:api": "npm --workspace @devops-community/api run lint",

@@ -2,10 +2,14 @@ node_modules
 .next
 dist
 coverage
+tmp
+logs
 .env
 .env.*
 !.env.example
 *.log
 __pycache__
 *.pyc
-legacy/devops_social.db
+apps/web/tsconfig.tsbuildinfo
+uploads/
+apps/api/uploads/

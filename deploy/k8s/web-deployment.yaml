@@ -1,13 +1,19 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: devops-community-web
+  name: web
   namespace: devops-community
+  labels:
+    app: web
+    app.kubernetes.io/name: web
+    app.kubernetes.io/part-of: devops-community
 spec:
   replicas: 2
+  revisionHistoryLimit: 3
+  minReadySeconds: 5
   selector:
     matchLabels:
-      app: devops-community-web
+      app: web
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -16,29 +22,38 @@ spec:
   template:
     metadata:
       labels:
-        app: devops-community-web
+        app: web
+        app.kubernetes.io/name: web
+        app.kubernetes.io/part-of: devops-community
     spec:
+      terminationGracePeriodSeconds: 30
       containers:
         - name: web
-          image: ghcr.io/example/devops-community-web:latest
-          imagePullPolicy: Always
+          image: ghcr.io/example/devops-community-web:1.0.0
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 3000
               name: http
           envFrom:
             - configMapRef:
-                name: devops-community-config
+                name: community-config
+          startupProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            failureThreshold: 30
+            periodSeconds: 5
           readinessProbe:
             httpGet:
               path: /api/health
               port: http
-            initialDelaySeconds: 10
+            initialDelaySeconds: 5
             periodSeconds: 10
           livenessProbe:
             httpGet:
               path: /api/health
               port: http
-            initialDelaySeconds: 20
+            initialDelaySeconds: 15
             periodSeconds: 20
           resources:
             requests:

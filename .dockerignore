@@ -6,8 +6,13 @@
 node_modules
 **/node_modules
 apps/web/.next
+apps/web/tsconfig.tsbuildinfo
 apps/api/dist
 coverage
+tmp
+logs
+**/logs
 uploads
-legacy/devops_social.db
+apps/api/uploads
+legacy
 npm-debug.log*

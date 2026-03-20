@@ -3,7 +3,10 @@ kind: Kustomization
 resources:
   - namespace.yaml
   - configmap.yaml
-  - api-pvc.yaml
+  - secret.example.yaml
+  - postgres-pvc.yaml
+  - postgres-service.yaml
+  - postgres-deployment.yaml
   - api-service.yaml
   - api-deployment.yaml
   - web-service.yaml

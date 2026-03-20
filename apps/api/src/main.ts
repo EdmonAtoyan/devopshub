@@ -9,6 +9,20 @@ import { ensureUploadRootExists, resolveUploadRoot } from "./common/uploads";
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const httpApp = app.getHttpAdapter().getInstance();
+
+  httpApp.use((req: express.Request, _res: express.Response, next: express.NextFunction) => {
+    const directApiPrefixes = ["/auth", "/users", "/posts"];
+    const shouldAlias = directApiPrefixes.some(
+      (prefix) => req.path === prefix || req.path.startsWith(`${prefix}/`),
+    );
+
+    if (shouldAlias) {
+      req.url = `/api${req.url}`;
+    }
+
+    next();
+  });
+
   app.setGlobalPrefix("api");
   app.enableShutdownHooks();
   httpApp.disable("x-powered-by");
@@ -19,13 +33,16 @@ async function bootstrap() {
     res.setHeader("X-Frame-Options", "DENY");
     next();
   });
-  httpApp.get("/api/health", (_req: express.Request, res: express.Response) => {
+  const healthHandler = (_req: express.Request, res: express.Response) => {
     res.status(200).json({
       service: "community-api",
       status: "ok",
       timestamp: new Date().toISOString(),
     });
-  });
+  };
+
+  httpApp.get("/health", healthHandler);
+  httpApp.get("/api/health", healthHandler);
   const uploadDir = resolveUploadRoot();
   ensureUploadRootExists();
   app.use("/uploads", express.static(uploadDir));
@@ -35,7 +52,7 @@ async function bootstrap() {
     credentials: true,
   });
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
-  const port = Number(process.env.API_PORT || process.env.PORT || 3001);
+  const port = Number(process.env.API_PORT || process.env.PORT || 4000);
   await app.listen(port, "0.0.0.0");
 }
 

@@ -8,7 +8,7 @@ const children = [];
 let shuttingDown = false;
 loadEnvFile(path.join(process.cwd(), ".env"));
 process.env.NODE_ENV ||= "production";
-const apiPort = process.env.API_PORT || "3001";
+const apiPort = process.env.API_PORT || "4000";
 const webPort = process.env.PORT || process.env.WEB_PORT || "3000";
 
 for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {

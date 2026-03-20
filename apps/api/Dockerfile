@@ -22,6 +22,7 @@ FROM node:20 AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
+ENV API_PORT=4000
 
 COPY package.json package-lock.json ./
 COPY prisma prisma

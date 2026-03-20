@@ -1,98 +1,84 @@
-function resolveApiBase() {
-  const envBase = process.env.NEXT_PUBLIC_API_URL;
+const DEFAULT_LOCAL_API_PORT = process.env.API_PORT || "4000";
+const DEFAULT_DIRECT_API_BASE = process.env.NEXT_PUBLIC_API_URL?.trim() || "";
+const DEFAULT_LEGACY_API_BASE = process.env.NEXT_PUBLIC_LEGACY_API_URL?.trim() || "/api";
 
+const DIRECT_ROUTE_ALIASES: Record<string, string> = {
+  auth: "auth",
+  users: "users",
+  feed: "posts",
+  posts: "posts",
+};
+
+function resolveApiBase(configuredBase: string) {
   if (typeof window !== "undefined") {
-    const hostname = window.location.hostname;
-    const origin = window.location.origin;
-    const protocol = window.location.protocol;
-    const tunnelHost = isTunnelHost(hostname);
-
-    if (envBase) {
-      const normalized = normalizeApiBase(envBase);
-
-      try {
-        const parsed = new URL(normalized);
-        const isLocalTarget = parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1";
-        const isRemoteClient = hostname !== "localhost" && hostname !== "127.0.0.1";
-        const isPrivateTarget = isPrivateHost(parsed.hostname);
-
-        if (isLocalTarget && isRemoteClient) {
-          parsed.hostname = hostname;
-          parsed.protocol = protocol;
-          return parsed.toString().replace(/\/$/, "");
-        }
-
-        if (isPrivateTarget && (tunnelHost || !isPrivateHost(hostname))) {
-          return `${origin}/api`;
-        }
-
-        return parsed.toString().replace(/\/$/, "");
-      } catch {
-        if (normalized.startsWith("/")) {
-          return `${origin}${normalized}`;
-        }
-        return `${origin}/api`;
-      }
-    }
-
-    return `${origin}/api`;
+    return normalizeApiBase(configuredBase);
   }
 
   const upstream = process.env.API_UPSTREAM_URL?.trim();
-  if (upstream) {
-    return normalizeApiBase(upstream);
+  const normalizedUpstream = normalizeApiUpstream(
+    upstream || `http://127.0.0.1:${DEFAULT_LOCAL_API_PORT}`,
+  );
+  if (!configuredBase || configuredBase === "/") {
+    return normalizedUpstream;
   }
 
-  if (envBase) {
-    if (envBase.startsWith("/")) {
-      const apiPort = process.env.API_PORT || "3001";
-      return normalizeApiBase(`http://127.0.0.1:${apiPort}${envBase}`);
-    }
-
-    return normalizeApiBase(envBase);
+  if (configuredBase.startsWith("/")) {
+    return normalizeApiBase(`${normalizedUpstream}${configuredBase}`);
   }
 
-  return normalizeApiBase(`http://127.0.0.1:${process.env.API_PORT || "3001"}/api`);
+  return normalizeApiBase(configuredBase);
 }
 
 function normalizeApiBase(value: string) {
-  const trimmed = value.replace(/\/+$/, "");
-  return /\/api$/i.test(trimmed) ? trimmed : `${trimmed}/api`;
+  if (!value || value === "/") return "";
+  return value.replace(/\/+$/, "");
 }
 
-function isPrivateHost(hostname: string) {
-  if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1") return true;
-  if (/^10\./.test(hostname)) return true;
-  if (/^192\.168\./.test(hostname)) return true;
-  if (/^172\.(1[6-9]|2\d|3[0-1])\./.test(hostname)) return true;
-  if (hostname === "0.0.0.0") return true;
-  return false;
+function normalizeApiUpstream(value: string) {
+  return normalizeApiBase(value).replace(/\/api$/i, "");
 }
 
-function isTunnelHost(hostname: string) {
-  return (
-    hostname.endsWith(".ngrok-free.app") ||
-    hostname.endsWith(".ngrok-free.dev") ||
-    hostname.endsWith(".ngrok.io") ||
-    hostname.endsWith(".ngrok.app")
-  );
-}
+function resolveApiTarget(path: string) {
+  const clean = path.startsWith("/") ? path.slice(1) : path;
+  const [firstSegment, ...rest] = clean.split("/");
+  const directRoute = DIRECT_ROUTE_ALIASES[firstSegment];
 
-const API_BASE = resolveApiBase();
-const API_ORIGIN = API_BASE.replace(/\/api\/?$/, "");
+  if (directRoute) {
+    return {
+      base: resolveApiBase(DEFAULT_DIRECT_API_BASE),
+      path: [directRoute, ...rest].join("/"),
+    };
+  }
+
+  return {
+    base: resolveApiBase(DEFAULT_LEGACY_API_BASE),
+    path: clean,
+  };
+}
 
 function isFormDataBody(body: BodyInit | null | undefined): body is FormData {
   return typeof FormData !== "undefined" && body instanceof FormData;
 }
 
+function isAbsoluteUrl(value: string) {
+  try {
+    new URL(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function apiUrl(path: string) {
-  const clean = path.startsWith("/") ? path.slice(1) : path;
-  return `${API_BASE}/${clean}`;
+  const target = resolveApiTarget(path);
+  return target.base ? `${target.base}/${target.path}` : `/${target.path}`;
 }
 
 export function assetUrl(path: string) {
-  const clean = path.startsWith("/") ? path : `/${path}`;
-  return `${API_ORIGIN}${clean}`;
+  const clean = path.trim();
+  if (!clean) return "";
+  if (isAbsoluteUrl(clean)) return clean;
+  return clean.startsWith("/") ? clean : `/${clean}`;
 }
 
 export async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {

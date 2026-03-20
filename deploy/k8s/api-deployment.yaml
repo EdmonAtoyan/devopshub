@@ -1,13 +1,19 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: devops-community-api
+  name: api
   namespace: devops-community
+  labels:
+    app: api
+    app.kubernetes.io/name: api
+    app.kubernetes.io/part-of: devops-community
 spec:
   replicas: 1
+  revisionHistoryLimit: 3
+  minReadySeconds: 5
   selector:
     matchLabels:
-      app: devops-community-api
+      app: api
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -16,43 +22,105 @@ spec:
   template:
     metadata:
       labels:
-        app: devops-community-api
+        app: api
+        app.kubernetes.io/name: api
+        app.kubernetes.io/part-of: devops-community
     spec:
+      terminationGracePeriodSeconds: 30
       containers:
         - name: api
-          image: ghcr.io/example/devops-community-api:latest
-          imagePullPolicy: Always
+          image: ghcr.io/example/devops-community-api:1.0.0
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 4000
               name: http
+          env:
+            - name: NODE_ENV
+              valueFrom:
+                configMapKeyRef:
+                  name: community-config
+                  key: NODE_ENV
+            - name: API_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: community-config
+                  key: API_PORT
+            - name: NEXT_PUBLIC_SITE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: community-config
+                  key: NEXT_PUBLIC_SITE_URL
+            - name: RESET_PASSWORD_BASE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: community-config
+                  key: RESET_PASSWORD_BASE_URL
+            - name: EMAIL_VERIFICATION_BASE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: community-config
+                  key: EMAIL_VERIFICATION_BASE_URL
+            - name: CORS_ORIGIN
+              valueFrom:
+                configMapKeyRef:
+                  name: community-config
+                  key: CORS_ORIGIN
+            - name: COOKIE_SECURE
+              valueFrom:
+                configMapKeyRef:
+                  name: community-config
+                  key: COOKIE_SECURE
+            - name: COOKIE_SAME_SITE
+              valueFrom:
+                configMapKeyRef:
+                  name: community-config
+                  key: COOKIE_SAME_SITE
+            - name: ALLOW_NGROK_ORIGINS
+              valueFrom:
+                configMapKeyRef:
+                  name: community-config
+                  key: ALLOW_NGROK_ORIGINS
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: community-secrets
+                  key: DATABASE_URL
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: community-secrets
+                  key: JWT_SECRET
           envFrom:
-            - configMapRef:
-                name: devops-community-config
             - secretRef:
-                name: devops-community-secrets
+                name: community-secrets
           volumeMounts:
             - name: uploads
               mountPath: /app/uploads
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            failureThreshold: 30
+            periodSeconds: 5
           readinessProbe:
             httpGet:
-              path: /api/health
+              path: /health
               port: http
-            initialDelaySeconds: 10
+            initialDelaySeconds: 5
             periodSeconds: 10
           livenessProbe:
             httpGet:
-              path: /api/health
+              path: /health
               port: http
-            initialDelaySeconds: 20
+            initialDelaySeconds: 15
             periodSeconds: 20
           resources:
             requests:
-              cpu: 100m
+              cpu: 250m
               memory: 256Mi
             limits:
-              cpu: 500m
+              cpu: "1"
               memory: 512Mi
       volumes:
         - name: uploads
-          persistentVolumeClaim:
-            claimName: devops-community-uploads
+          emptyDir: {}

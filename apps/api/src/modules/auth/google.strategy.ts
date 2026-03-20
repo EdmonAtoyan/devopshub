@@ -1,6 +1,7 @@
 import { Injectable, UnauthorizedException } from "@nestjs/common";
 import { PassportStrategy } from "@nestjs/passport";
 import { Profile, Strategy, VerifyCallback } from "passport-google-oauth20";
+import { resolveGoogleCallbackUrl } from "./oauth-url";
 
 export type GoogleAuthUser = {
   email: string;
@@ -13,12 +14,11 @@ export class GoogleStrategy extends PassportStrategy(Strategy, "google") {
   constructor() {
     const clientID = process.env.GOOGLE_CLIENT_ID?.trim();
     const clientSecret = process.env.GOOGLE_CLIENT_SECRET?.trim();
-    const callbackURL = process.env.GOOGLE_CALLBACK_URL?.trim();
 
     super({
       clientID: clientID || "google-client-id-missing",
       clientSecret: clientSecret || "google-client-secret-missing",
-      callbackURL: callbackURL || "http://localhost:3001/api/auth/google/callback",
+      callbackURL: resolveGoogleCallbackUrl(),
       scope: ["email", "profile"],
     });
   }

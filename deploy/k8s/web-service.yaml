@@ -1,12 +1,18 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: devops-community-web
+  name: web
   namespace: devops-community
+  labels:
+    app: web
+    app.kubernetes.io/name: web
+    app.kubernetes.io/part-of: devops-community
 spec:
+  type: ClusterIP
   selector:
-    app: devops-community-web
+    app: web
   ports:
     - name: http
-      port: 3000
+      port: 80
       targetPort: http
+      protocol: TCP

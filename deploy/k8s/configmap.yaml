@@ -1,16 +1,24 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: devops-community-config
+  name: community-config
   namespace: devops-community
+  labels:
+    app.kubernetes.io/name: devops-community
+    app.kubernetes.io/part-of: devops-community
 data:
-  NODE_ENV: production
+  NODE_ENV: "production"
   PORT: "3000"
   API_PORT: "4000"
-  NEXT_PUBLIC_API_URL: /api
-  API_UPSTREAM_URL: http://devops-community-api:4000
-  NEXT_PUBLIC_SITE_URL: __PUBLIC_SITE_URL__
-  RESET_PASSWORD_BASE_URL: __PUBLIC_SITE_URL__
-  EMAIL_VERIFICATION_BASE_URL: __PUBLIC_SITE_URL__
-  CORS_ORIGIN: __PUBLIC_SITE_URL__
+  POSTGRES_DB: "devopscommunity"
+  POSTGRES_USER: "devopscommunity"
+  NEXT_PUBLIC_API_URL: "/"
+  NEXT_PUBLIC_LEGACY_API_URL: "/api"
+  API_UPSTREAM_URL: "http://api:4000"
+  NEXT_PUBLIC_SITE_URL: "https://community.example.com"
+  RESET_PASSWORD_BASE_URL: "https://community.example.com"
+  EMAIL_VERIFICATION_BASE_URL: "https://community.example.com"
+  CORS_ORIGIN: "https://community.example.com"
+  COOKIE_SECURE: "true"
+  COOKIE_SAME_SITE: "lax"
   ALLOW_NGROK_ORIGINS: "false"

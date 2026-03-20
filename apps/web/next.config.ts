@@ -8,6 +8,18 @@ const nextConfig: NextConfig = {
     const upstream = resolveApiUpstream();
     return [
       {
+        source: "/auth/:path*",
+        destination: `${upstream}/auth/:path*`,
+      },
+      {
+        source: "/users/:path*",
+        destination: `${upstream}/users/:path*`,
+      },
+      {
+        source: "/posts/:path*",
+        destination: `${upstream}/posts/:path*`,
+      },
+      {
         source: "/api/:path*",
         destination: `${upstream}/api/:path*`,
       },
@@ -26,17 +38,21 @@ const nextConfig: NextConfig = {
 export default nextConfig;
 
 function resolveApiUpstream() {
-  const configured = process.env.API_UPSTREAM_URL || process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:3001/api";
-
-  if (configured.startsWith("/")) {
-    return "http://127.0.0.1:3001";
+  const defaultLocalApiUrl = `http://127.0.0.1:${process.env.API_PORT || "4000"}`;
+  const explicitUpstream = process.env.API_UPSTREAM_URL?.trim();
+  if (explicitUpstream) {
+    return normalizeApiUpstream(explicitUpstream);
   }
 
+  return defaultLocalApiUrl;
+}
+
+function normalizeApiUpstream(configured: string) {
   try {
     const parsed = new URL(configured);
     const basePath = parsed.pathname.replace(/\/api\/?$/i, "").replace(/\/+$/, "");
     return `${parsed.protocol}//${parsed.host}${basePath}`;
   } catch {
-    return "http://127.0.0.1:3001";
+    return `http://127.0.0.1:${process.env.API_PORT || "4000"}`;
   }
 }
