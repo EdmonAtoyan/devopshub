@@ -38,17 +38,24 @@ const nextConfig: NextConfig = {
 export default nextConfig;
 
 function resolveApiUpstream() {
-  const defaultLocalApiUrl = `http://127.0.0.1:${resolveNumericPort(
-    process.env.API_INTERNAL_PORT,
-    process.env.API_PORT,
-    "4000",
-  )}`;
   const explicitUpstream = process.env.API_UPSTREAM_URL?.trim();
   if (explicitUpstream) {
     return normalizeApiUpstream(explicitUpstream);
   }
 
-  return defaultLocalApiUrl;
+  if (process.env.NODE_ENV === "production") {
+    return `http://api:${resolveNumericPort(
+      process.env.API_INTERNAL_PORT,
+      process.env.API_PORT,
+      "4000",
+    )}`;
+  }
+
+  return `http://127.0.0.1:${resolveNumericPort(
+    process.env.API_INTERNAL_PORT,
+    process.env.API_PORT,
+    "4000",
+  )}`;
 }
 
 function normalizeApiUpstream(configured: string) {

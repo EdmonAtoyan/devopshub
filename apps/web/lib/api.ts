@@ -20,7 +20,10 @@ function resolveApiBase(configuredBase: string) {
 
   const upstream = process.env.API_UPSTREAM_URL?.trim();
   const normalizedUpstream = normalizeApiUpstream(
-    upstream || `http://127.0.0.1:${DEFAULT_LOCAL_API_PORT}`,
+    upstream ||
+      (process.env.NODE_ENV === "production"
+        ? `http://api:${DEFAULT_LOCAL_API_PORT}`
+        : `http://127.0.0.1:${DEFAULT_LOCAL_API_PORT}`),
   );
   if (!configuredBase || configuredBase === "/") {
     return normalizedUpstream;

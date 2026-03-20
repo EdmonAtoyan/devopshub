@@ -1,5 +1,7 @@
 "use client";
 
+export const dynamic = "force-dynamic";
+
 import { apiRequest } from "@/lib/api";
 import { AnimatedLogo } from "@/components/animated-logo";
 import { CaptchaField, captchaEnabled } from "@/components/captcha-field";

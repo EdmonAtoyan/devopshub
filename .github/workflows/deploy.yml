@@ -8,11 +8,11 @@ on:
 
 permissions:
   contents: read
-  packages: write
 
 env:
-  API_IMAGE_NAME: devops-community-api
-  WEB_IMAGE_NAME: devops-community-web
+  PUBLIC_SITE_URL: ${{ vars.PUBLIC_SITE_URL || 'https://devopshub.one' }}
+  API_IMAGE_NAME: edmond25/devopshub-api
+  WEB_IMAGE_NAME: edmond25/devopshub-web
 
 jobs:
   build-and-push:
@@ -24,26 +24,20 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Normalize image owner
-        id: vars
-        run: echo "owner=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
-
-      - name: Login to GitHub Container Registry
+      - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Define image tags
         id: images
         run: |
-          owner="${{ steps.vars.outputs.owner }}"
           sha="${{ github.sha }}"
-          echo "api_image=ghcr.io/${owner}/${API_IMAGE_NAME}:${sha}" >> "$GITHUB_OUTPUT"
-          echo "api_latest=ghcr.io/${owner}/${API_IMAGE_NAME}:latest" >> "$GITHUB_OUTPUT"
-          echo "web_image=ghcr.io/${owner}/${WEB_IMAGE_NAME}:${sha}" >> "$GITHUB_OUTPUT"
-          echo "web_latest=ghcr.io/${owner}/${WEB_IMAGE_NAME}:latest" >> "$GITHUB_OUTPUT"
+          echo "api_image=${API_IMAGE_NAME}:${sha}" >> "$GITHUB_OUTPUT"
+          echo "api_latest=${API_IMAGE_NAME}:latest" >> "$GITHUB_OUTPUT"
+          echo "web_image=${WEB_IMAGE_NAME}:${sha}" >> "$GITHUB_OUTPUT"
+          echo "web_latest=${WEB_IMAGE_NAME}:latest" >> "$GITHUB_OUTPUT"
 
       - name: Build API image
         run: |
@@ -57,6 +51,11 @@ jobs:
         run: |
           docker build \
             -f apps/web/Dockerfile \
+            --build-arg NEXT_PUBLIC_SITE_URL="${PUBLIC_SITE_URL}" \
+            --build-arg NEXT_PUBLIC_API_URL="/" \
+            --build-arg NEXT_PUBLIC_LEGACY_API_URL="/api" \
+            --build-arg API_UPSTREAM_URL="http://api:4000" \
+            --build-arg API_INTERNAL_PORT="4000" \
             -t "${{ steps.images.outputs.web_image }}" \
             -t "${{ steps.images.outputs.web_latest }}" \
             .
@@ -87,12 +86,8 @@ jobs:
       - name: Validate deployment settings
         env:
           KUBE_CONFIG_DATA: ${{ secrets.KUBE_CONFIG_DATA }}
-          PUBLIC_SITE_URL: ${{ vars.PUBLIC_SITE_URL }}
-          INGRESS_HOST: ${{ vars.INGRESS_HOST }}
         run: |
           test -n "$KUBE_CONFIG_DATA" || { echo "Missing secret: KUBE_CONFIG_DATA"; exit 1; }
-          test -n "$PUBLIC_SITE_URL" || { echo "Missing variable: PUBLIC_SITE_URL"; exit 1; }
-          test -n "$INGRESS_HOST" || { echo "Missing variable: INGRESS_HOST"; exit 1; }
 
       - name: Configure kubeconfig
         run: |
@@ -101,17 +96,16 @@ jobs:
 
       - name: Render Kubernetes manifests
         run: |
-          rm -rf /tmp/devops-community-k8s
-          cp -R deploy/k8s /tmp/devops-community-k8s
-          sed -i "s|ghcr.io/example/devops-community-api:latest|${{ needs.build-and-push.outputs.api_image }}|g" /tmp/devops-community-k8s/api-deployment.yaml
-          sed -i "s|ghcr.io/example/devops-community-web:latest|${{ needs.build-and-push.outputs.web_image }}|g" /tmp/devops-community-k8s/web-deployment.yaml
-          sed -i "s|__PUBLIC_SITE_URL__|${{ vars.PUBLIC_SITE_URL }}|g" /tmp/devops-community-k8s/configmap.yaml
-          sed -i "s|__INGRESS_HOST__|${{ vars.INGRESS_HOST }}|g" /tmp/devops-community-k8s/ingress.yaml
+          rm -rf /tmp/devopshub-k8s
+          cp -R deploy/k8s /tmp/devopshub-k8s
+          sed -i "s|edmond25/devopshub-api:latest|${{ needs.build-and-push.outputs.api_image }}|g" /tmp/devopshub-k8s/api-deployment.yaml
+          sed -i "s|edmond25/devopshub-web:latest|${{ needs.build-and-push.outputs.web_image }}|g" /tmp/devopshub-k8s/web-deployment.yaml
 
       - name: Apply manifests
-        run: kubectl apply -k /tmp/devops-community-k8s
+        run: kubectl apply -k /tmp/devopshub-k8s
 
       - name: Wait for rollouts
         run: |
-          kubectl -n devops-community rollout status deployment/devops-community-api --timeout=180s
-          kubectl -n devops-community rollout status deployment/devops-community-web --timeout=180s
+          kubectl -n devopshub rollout status deployment/postgres --timeout=300s
+          kubectl -n devopshub rollout status deployment/api --timeout=300s
+          kubectl -n devopshub rollout status deployment/web --timeout=300s

@@ -46,6 +46,26 @@ spec:
                 configMapKeyRef:
                   name: community-config
                   key: API_INTERNAL_PORT
+            - name: DATABASE_CONNECT_MAX_ATTEMPTS
+              valueFrom:
+                configMapKeyRef:
+                  name: community-config
+                  key: DATABASE_CONNECT_MAX_ATTEMPTS
+            - name: DATABASE_CONNECT_RETRY_MS
+              valueFrom:
+                configMapKeyRef:
+                  name: community-config
+                  key: DATABASE_CONNECT_RETRY_MS
+            - name: DB_STARTUP_TIMEOUT_MS
+              valueFrom:
+                configMapKeyRef:
+                  name: community-config
+                  key: DB_STARTUP_TIMEOUT_MS
+            - name: DB_STARTUP_RETRY_MS
+              valueFrom:
+                configMapKeyRef:
+                  name: community-config
+                  key: DB_STARTUP_RETRY_MS
             - name: NEXT_PUBLIC_SITE_URL
               valueFrom:
                 configMapKeyRef:

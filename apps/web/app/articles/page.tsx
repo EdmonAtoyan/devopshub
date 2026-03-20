@@ -1,5 +1,7 @@
 "use client";
 
+export const dynamic = "force-dynamic";
+
 import { AutoLinkedText } from "@/components/auto-linked-text";
 import { EmojiTextEditor } from "@/components/emoji-text-editor";
 import { Shell } from "@/components/shell";

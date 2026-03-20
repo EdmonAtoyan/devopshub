@@ -24,6 +24,7 @@ function resolveListenPort(...candidates: Array<string | undefined>) {
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const httpApp = app.getHttpAdapter().getInstance();
+  httpApp.set("trust proxy", true);
 
   httpApp.use((req: express.Request, _res: express.Response, next: express.NextFunction) => {
     const directApiPrefixes = ["/auth", "/users", "/posts"];

@@ -1,5 +1,7 @@
 "use client";
 
+export const dynamic = "force-dynamic";
+
 import { TrashIcon } from "@/components/icons";
 import { PostCard } from "@/components/post-card";
 import { Shell } from "@/components/shell";

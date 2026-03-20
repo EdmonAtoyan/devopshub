@@ -1,5 +1,7 @@
 "use client";
 
+export const dynamic = "force-dynamic";
+
 import { AnimatedLogo } from "@/components/animated-logo";
 import { apiRequest } from "@/lib/api";
 import Link from "next/link";

@@ -39,7 +39,7 @@ ENV NEXT_PUBLIC_SITE_URL=$NEXT_PUBLIC_SITE_URL
 ENV NEXT_PUBLIC_API_URL=/
 ENV NEXT_PUBLIC_LEGACY_API_URL=/api
 ENV API_INTERNAL_PORT=4000
-ENV API_UPSTREAM_URL=http://127.0.0.1:4000
+ENV API_UPSTREAM_URL=http://api:4000
 
 COPY package.json package-lock.json ./
 COPY --from=builder /app/node_modules ./node_modules

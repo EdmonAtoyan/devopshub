@@ -1,5 +1,7 @@
 "use client";
 
+export const dynamic = "force-dynamic";
+
 import { CaptchaField, captchaEnabled } from "@/components/captcha-field";
 import { Shell } from "@/components/shell";
 import { SaveIcon, SettingsIcon, TrashIcon, UploadIcon } from "@/components/icons";

@@ -1,5 +1,7 @@
 "use client";
 
+export const dynamic = "force-dynamic";
+
 import { AutoLinkedText } from "@/components/auto-linked-text";
 import { GifAttachment } from "@/components/gif-attachment";
 import { PostCard } from "@/components/post-card";

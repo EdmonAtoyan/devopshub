@@ -1,5 +1,7 @@
 "use client";
 
+export const dynamic = "force-dynamic";
+
 import { AutoLinkedText } from "@/components/auto-linked-text";
 import { CheckIcon, CopyIcon, PencilIcon, PlusIcon, SaveIcon, TrashIcon, XIcon } from "@/components/icons";
 import { SnippetActionButton, SnippetCard, SnippetCodePanel } from "@/components/snippet-card";

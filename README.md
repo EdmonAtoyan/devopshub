@@ -92,8 +92,9 @@ npm run docker:build:web
 Runtime expectations:
 
 - API image expects `DATABASE_URL`, `JWT_SECRET`, and the public site URLs
-- web image expects `NEXT_PUBLIC_API_URL=/api`
-- set `API_UPSTREAM_URL` at runtime for the web container, for example `http://devops-community-api:4000` in Kubernetes
+- web image expects `NEXT_PUBLIC_API_URL=/` and `NEXT_PUBLIC_LEGACY_API_URL=/api`
+- the production web build should be created with `NEXT_PUBLIC_SITE_URL=https://devopshub.one`
+- set `API_UPSTREAM_URL` for the web container to `http://api:4000` in Kubernetes
 
 ## Kubernetes Deployment
 
@@ -103,53 +104,47 @@ Runtime expectations:
    cp deploy/k8s/secret.example.yaml deploy/k8s/secret.yaml
    ```
 
-2. Update the image references in:
+2. Confirm the Kubernetes resources are targeting the `devopshub` namespace and the Docker Hub images:
 
 - `deploy/k8s/api-deployment.yaml`
 - `deploy/k8s/web-deployment.yaml`
-
-3. Replace the placeholders in:
-
-- `deploy/k8s/configmap.yaml`
 - `deploy/k8s/ingress.yaml`
 
-Required placeholders:
-
-- `__PUBLIC_SITE_URL__`: the public origin, for example `https://community.example.com`
-- `__INGRESS_HOST__`: the hostname used by the ingress rule
-
-4. Apply the manifests:
+3. Apply the manifests:
 
    ```bash
    kubectl apply -f deploy/k8s/secret.yaml
    kubectl apply -k deploy/k8s
    ```
 
-5. Verify rollout:
+4. Verify rollout:
 
    ```bash
-   kubectl -n devops-community rollout status deployment/devops-community-api
-   kubectl -n devops-community rollout status deployment/devops-community-web
-   kubectl -n devops-community get ingress,svc,pods
+   kubectl -n devopshub rollout status deployment/postgres
+   kubectl -n devopshub rollout status deployment/api
+   kubectl -n devopshub rollout status deployment/web
+   kubectl -n devopshub get ingress,svc,pods
    ```
 
 Notes:
 
-- the ingress expects a TLS secret named `devops-community-tls`
-- uploads are stored on the API PVC declared in `deploy/k8s/api-pvc.yaml`
+- the ingress expects a TLS secret named `devopshub-one-tls`
+- PostgreSQL uses the `postgres-data` PVC declared in `deploy/k8s/postgres-pvc.yaml`
 - the API callback URL for Google OAuth defaults to `${NEXT_PUBLIC_SITE_URL}/api/auth/google/callback`
+- the API container retries database connections and safely bootstraps the schema on empty databases before NestJS starts
 
 ## CI/CD
 
-`.github/workflows/deploy.yml` now builds and publishes the API and web images to GHCR on every push to `main`.
+`.github/workflows/deploy.yml` now builds and publishes the API and web images to Docker Hub on every push to `main`.
 
-When you run the workflow manually with `workflow_dispatch`, it can also apply the Kubernetes manifests after rendering the public host placeholders. Configure:
+When you run the workflow manually with `workflow_dispatch`, it can also apply the Kubernetes manifests after pinning the deployment to the image SHA it just built. Configure:
 
+- secret: `DOCKERHUB_USERNAME`
+- secret: `DOCKERHUB_TOKEN`
 - secret: `KUBE_CONFIG_DATA` as a base64-encoded kubeconfig
 - variable: `PUBLIC_SITE_URL`
-- variable: `INGRESS_HOST`
 
-The deploy step assumes the cluster already has a `devops-community-secrets` secret or that you manage `deploy/k8s/secret.yaml` separately.
+The deploy step assumes the cluster already has a `community-secrets` secret or that you manage `deploy/k8s/secret.yaml` separately.
 
 ## Environment Notes
 
