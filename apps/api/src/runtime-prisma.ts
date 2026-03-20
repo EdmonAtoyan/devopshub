@@ -23,6 +23,10 @@ function loadGeneratedPrismaClient() {
 export function createRuntimePrismaClient(options: RuntimePrismaOptions = {}) {
   const { PrismaClient } = loadGeneratedPrismaClient();
   const databaseUrl = process.env.DATABASE_URL?.trim();
+  if (!databaseUrl && process.env.NODE_ENV === "production") {
+    throw new Error("DATABASE_URL must be configured in production");
+  }
+
   if (!databaseUrl) {
     return new PrismaClient(options as any);
   }

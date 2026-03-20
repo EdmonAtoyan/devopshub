@@ -1,7 +1,19 @@
 const DEFAULT_SITE_URL = "http://localhost:3000";
 
 export function resolveSiteUrl() {
-  return trimTrailingSlash(process.env.NEXT_PUBLIC_SITE_URL?.trim() || DEFAULT_SITE_URL);
+  const configured =
+    process.env.SITE_URL?.trim() ||
+    process.env.NEXT_PUBLIC_SITE_URL?.trim();
+
+  if (configured) {
+    return trimTrailingSlash(configured);
+  }
+
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("SITE_URL or NEXT_PUBLIC_SITE_URL must be configured in production");
+  }
+
+  return DEFAULT_SITE_URL;
 }
 
 export function resolveGoogleCallbackUrl() {
@@ -10,7 +22,7 @@ export function resolveGoogleCallbackUrl() {
     return trimTrailingSlash(configured);
   }
 
-  return buildClientUrl("/auth/google/callback");
+  return buildClientUrl("/api/auth/google/callback");
 }
 
 export function isGoogleOAuthConfigured() {

@@ -20,6 +20,7 @@ import {
 } from "./dto";
 import type { GoogleAuthUser } from "./google.strategy";
 import { MailerService } from "./mailer.service";
+import { resolveSiteUrl } from "./oauth-url";
 
 @Injectable()
 export class AuthService {
@@ -34,105 +35,138 @@ export class AuthService {
   ) {}
 
   async register(dto: RegisterDto, ipAddress?: string) {
-    await this.captchaService.assertToken(dto.captchaToken, ipAddress);
+    try {
+      await this.captchaService.assertToken(dto.captchaToken, ipAddress);
 
-    const email = await this.emailValidationService.normalizeAndValidate(dto.email);
-    this.logger.log(`Registration requested for ${email}`);
+      const email = await this.emailValidationService.normalizeAndValidate(dto.email);
+      this.logger.log(`Registration requested for ${email}`);
 
-    const existing = await this.findUserByEmailInsensitive(email, { id: true });
-    if (existing) throw new BadRequestException("Email already registered");
+      const existing = await this.findUserByEmailInsensitive(email, { id: true });
+      if (existing) throw new BadRequestException("Email already registered");
 
-    const username = await this.generateUniqueUsername(email);
-    const passwordHash = await this.hashPassword(dto.password);
-    const user = await this.prisma.user.create({
-      data: {
-        email,
-        username,
-        name: dto.name.trim(),
-        passwordHash,
-      },
-      select: { id: true, email: true, username: true, name: true },
-    });
+      const username = await this.generateUniqueUsername(email);
+      const passwordHash = await this.hashPassword(dto.password);
+      const user = await this.prisma.user.create({
+        data: {
+          email,
+          username,
+          name: dto.name.trim(),
+          passwordHash,
+        },
+        select: { id: true, email: true, username: true, name: true },
+      });
 
-    await this.sendVerificationForUserId(user.id);
-    this.logger.log(`Registration completed for ${email}; verification email queued`);
+      await this.sendVerificationForUserId(user.id);
+      this.logger.log(`Registration completed for ${email}; verification email queued`);
 
-    return { success: true, requiresEmailVerification: true };
+      return { success: true, requiresEmailVerification: true };
+    } catch (error) {
+      if (!(error instanceof BadRequestException)) {
+        this.logger.error(
+          `Registration crashed for ${dto.email?.trim().toLowerCase() || "unknown-email"}`,
+          error instanceof Error ? error.stack : undefined,
+        );
+      }
+      throw error;
+    }
   }
 
   async login(dto: LoginDto, ipAddress?: string) {
-    await this.captchaService.assertToken(dto.captchaToken, ipAddress);
-
     const email = dto.email.trim().toLowerCase();
-    this.logger.log(`Login requested for ${email}`);
-    const user = await this.findAuthUserByEmail(email);
-    if (!user) {
-      this.logger.warn(`Login failed for ${email}: user not found`);
-      throw new UnauthorizedException("Invalid credentials");
-    }
 
-    const valid = await this.verifyPassword(user.passwordHash, dto.password);
-    if (!valid) {
-      this.logger.warn(`Login failed for ${email}: password verification failed`);
-      throw new UnauthorizedException("Invalid credentials");
-    }
-    if (!user.emailVerifiedAt) {
-      this.logger.warn(`Login blocked for ${email}: email not verified`);
-      throw new UnauthorizedException("Verify your email before signing in");
-    }
+    try {
+      await this.captchaService.assertToken(dto.captchaToken, ipAddress);
 
-    this.logger.log(`Login succeeded for ${email}`);
-    return this.issueToken(user.id, user.email);
+      this.logger.log(`Login requested for ${email}`);
+      const user = await this.findAuthUserByEmail(email);
+      if (!user) {
+        this.logger.warn(`Login failed for ${email}: user not found`);
+        throw new UnauthorizedException("Invalid credentials");
+      }
+
+      const valid = await this.verifyPassword(user.passwordHash, dto.password);
+      if (!valid) {
+        this.logger.warn(`Login failed for ${email}: password verification failed`);
+        throw new UnauthorizedException("Invalid credentials");
+      }
+      if (!user.emailVerifiedAt) {
+        this.logger.warn(`Login blocked for ${email}: email not verified`);
+        throw new UnauthorizedException("Verify your email before signing in");
+      }
+
+      this.logger.log(`Login succeeded for ${email}`);
+      return this.issueToken(user.id, user.email);
+    } catch (error) {
+      if (
+        !(error instanceof BadRequestException) &&
+        !(error instanceof UnauthorizedException)
+      ) {
+        this.logger.error(
+          `Login crashed for ${email}`,
+          error instanceof Error ? error.stack : undefined,
+        );
+      }
+      throw error;
+    }
   }
 
   async loginWithGoogle(profile: GoogleAuthUser) {
     const email = profile.email.trim().toLowerCase();
-    this.logger.log(`Google login requested for ${email}`);
 
-    const existing = await this.findUserByEmailInsensitive(email, {
-      id: true,
-      email: true,
-      avatarUrl: true,
-      emailVerifiedAt: true,
-    });
+    try {
+      this.logger.log(`Google login requested for ${email}`);
 
-    if (existing) {
-      const data: { emailVerifiedAt?: Date; avatarUrl?: string } = {};
-      if (!existing.emailVerifiedAt) {
-        data.emailVerifiedAt = new Date();
+      const existing = await this.findUserByEmailInsensitive(email, {
+        id: true,
+        email: true,
+        avatarUrl: true,
+        emailVerifiedAt: true,
+      });
+
+      if (existing) {
+        const data: { emailVerifiedAt?: Date; avatarUrl?: string } = {};
+        if (!existing.emailVerifiedAt) {
+          data.emailVerifiedAt = new Date();
+        }
+        if (!existing.avatarUrl && profile.avatarUrl) {
+          data.avatarUrl = profile.avatarUrl;
+        }
+
+        if (Object.keys(data).length > 0) {
+          await this.prisma.user.update({
+            where: { id: existing.id },
+            data,
+          });
+        }
+
+        this.logger.log(`Google login succeeded for existing account ${email}`);
+        return this.issueToken(existing.id, existing.email);
       }
-      if (!existing.avatarUrl && profile.avatarUrl) {
-        data.avatarUrl = profile.avatarUrl;
-      }
 
-      if (Object.keys(data).length > 0) {
-        await this.prisma.user.update({
-          where: { id: existing.id },
-          data,
-        });
-      }
+      const username = await this.generateUniqueUsername(email);
+      const passwordHash = await this.hashPassword(randomBytes(32).toString("hex"));
+      const name = profile.name.trim().slice(0, 120) || email.split("@")[0] || "Google user";
+      const user = await this.prisma.user.create({
+        data: {
+          email,
+          username,
+          name,
+          passwordHash,
+          avatarUrl: profile.avatarUrl || undefined,
+          emailVerifiedAt: new Date(),
+        },
+        select: { id: true, email: true },
+      });
 
-      this.logger.log(`Google login succeeded for existing account ${email}`);
-      return this.issueToken(existing.id, existing.email);
+      this.logger.log(`Google login created account for ${email}`);
+      return this.issueToken(user.id, user.email);
+    } catch (error) {
+      this.logger.error(
+        `Google login crashed for ${email}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+      throw error;
     }
-
-    const username = await this.generateUniqueUsername(email);
-    const passwordHash = await this.hashPassword(randomBytes(32).toString("hex"));
-    const name = profile.name.trim().slice(0, 120) || email.split("@")[0] || "Google user";
-    const user = await this.prisma.user.create({
-      data: {
-        email,
-        username,
-        name,
-        passwordHash,
-        avatarUrl: profile.avatarUrl || undefined,
-        emailVerifiedAt: new Date(),
-      },
-      select: { id: true, email: true },
-    });
-
-    this.logger.log(`Google login created account for ${email}`);
-    return this.issueToken(user.id, user.email);
   }
 
   async forgotPassword(dto: ForgotPasswordDto) {
@@ -298,8 +332,7 @@ export class AuthService {
 
     const verificationLink = this.buildActionUrl(
       process.env.EMAIL_VERIFICATION_BASE_URL?.trim() ||
-        process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
-        "http://localhost:3000",
+        resolveSiteUrl(),
       `/verify-email?token=${token}`,
     );
 
@@ -347,8 +380,7 @@ export class AuthService {
 
     return this.buildActionUrl(
       process.env.RESET_PASSWORD_BASE_URL?.trim() ||
-        process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
-        "http://localhost:3000",
+        resolveSiteUrl(),
       `/reset-password?token=${token}`,
     );
   }

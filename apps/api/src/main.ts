@@ -2,6 +2,7 @@ import { ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import * as cookieParser from "cookie-parser";
 import * as express from "express";
+import { HttpExceptionLoggingFilter } from "./common/http-exception.filter";
 import { AppModule } from "./app.module";
 import { corsOriginValidator } from "./common/cors";
 import { ensureUploadRootExists, resolveUploadRoot } from "./common/uploads";
@@ -66,6 +67,7 @@ async function bootstrap() {
     credentials: true,
   });
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
+  app.useGlobalFilters(new HttpExceptionLoggingFilter());
   const port = resolveListenPort(
     process.env.PORT,
     process.env.API_INTERNAL_PORT,

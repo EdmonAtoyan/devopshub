@@ -25,6 +25,7 @@ export class LoginDto {
   email!: string;
 
   @IsString()
+  @MinLength(1, { message: "Password is required" })
   password!: string;
 
   @IsOptional()

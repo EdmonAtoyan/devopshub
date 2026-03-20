@@ -51,6 +51,11 @@ spec:
                 configMapKeyRef:
                   name: community-config
                   key: NEXT_PUBLIC_SITE_URL
+            - name: SITE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: community-config
+                  key: SITE_URL
             - name: RESET_PASSWORD_BASE_URL
               valueFrom:
                 configMapKeyRef:
