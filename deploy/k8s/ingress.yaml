@@ -2,10 +2,10 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: community
-  namespace: devops-community
+  namespace: devopshub
   labels:
     app.kubernetes.io/name: ingress
-    app.kubernetes.io/part-of: devops-community
+    app.kubernetes.io/part-of: devopshub
   annotations:
     kubernetes.io/ingress.class: traefik
     traefik.ingress.kubernetes.io/router.entrypoints: web,websecure
@@ -14,19 +14,12 @@ spec:
   ingressClassName: traefik
   tls:
     - hosts:
-        - community.example.com
-      secretName: community-example-tls
+        - devopshub.one
+      secretName: devopshub-one-tls
   rules:
-    - host: community.example.com
+    - host: devopshub.one
       http:
         paths:
-          - path: /api
-            pathType: Prefix
-            backend:
-              service:
-                name: api
-                port:
-                  number: 4000
           - path: /auth
             pathType: Prefix
             backend:
@@ -34,28 +27,7 @@ spec:
                 name: api
                 port:
                   number: 4000
-          - path: /users
-            pathType: Prefix
-            backend:
-              service:
-                name: api
-                port:
-                  number: 4000
-          - path: /posts
-            pathType: Prefix
-            backend:
-              service:
-                name: api
-                port:
-                  number: 4000
-          - path: /uploads
-            pathType: Prefix
-            backend:
-              service:
-                name: api
-                port:
-                  number: 4000
-          - path: /socket.io
+          - path: /api
             pathType: Prefix
             backend:
               service:

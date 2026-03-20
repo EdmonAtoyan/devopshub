@@ -2,11 +2,11 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: postgres
-  namespace: devops-community
+  namespace: devopshub
   labels:
     app: postgres
     app.kubernetes.io/name: postgres
-    app.kubernetes.io/part-of: devops-community
+    app.kubernetes.io/part-of: devopshub
 spec:
   replicas: 1
   revisionHistoryLimit: 3
@@ -20,7 +20,7 @@ spec:
       labels:
         app: postgres
         app.kubernetes.io/name: postgres
-        app.kubernetes.io/part-of: devops-community
+        app.kubernetes.io/part-of: devopshub
     spec:
       enableServiceLinks: false
       terminationGracePeriodSeconds: 60

@@ -2,11 +2,11 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: api
-  namespace: devops-community
+  namespace: devopshub
   labels:
     app: api
     app.kubernetes.io/name: api
-    app.kubernetes.io/part-of: devops-community
+    app.kubernetes.io/part-of: devopshub
 spec:
   replicas: 1
   revisionHistoryLimit: 3
@@ -24,7 +24,7 @@ spec:
       labels:
         app: api
         app.kubernetes.io/name: api
-        app.kubernetes.io/part-of: devops-community
+        app.kubernetes.io/part-of: devopshub
     spec:
       enableServiceLinks: false
       terminationGracePeriodSeconds: 30

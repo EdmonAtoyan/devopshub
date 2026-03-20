@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: devops-community
+  name: devopshub
   labels:
-    app.kubernetes.io/name: devops-community
-    app.kubernetes.io/part-of: devops-community
+    app.kubernetes.io/name: devopshub
+    app.kubernetes.io/part-of: devopshub

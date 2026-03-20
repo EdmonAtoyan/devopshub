@@ -2,24 +2,24 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: community-config
-  namespace: devops-community
+  namespace: devopshub
   labels:
-    app.kubernetes.io/name: devops-community
-    app.kubernetes.io/part-of: devops-community
+    app.kubernetes.io/name: devopshub
+    app.kubernetes.io/part-of: devopshub
 data:
   NODE_ENV: "production"
   PORT: "3000"
   API_INTERNAL_PORT: "4000"
-  POSTGRES_DB: "devopscommunity"
-  POSTGRES_USER: "devopscommunity"
+  POSTGRES_DB: "devopshub"
+  POSTGRES_USER: "devops"
   NEXT_PUBLIC_API_URL: "/"
   NEXT_PUBLIC_LEGACY_API_URL: "/api"
   API_UPSTREAM_URL: "http://api:4000"
-  SITE_URL: "http://devopshub.one"
-  NEXT_PUBLIC_SITE_URL: "http://devopshub.one"
-  RESET_PASSWORD_BASE_URL: "http://devopshub.one"
-  EMAIL_VERIFICATION_BASE_URL: "http://devopshub.one"
-  CORS_ORIGIN: "http://devopshub.one"
-  COOKIE_SECURE: "false"
+  SITE_URL: "https://devopshub.one"
+  NEXT_PUBLIC_SITE_URL: "https://devopshub.one"
+  RESET_PASSWORD_BASE_URL: "https://devopshub.one"
+  EMAIL_VERIFICATION_BASE_URL: "https://devopshub.one"
+  CORS_ORIGIN: "https://devopshub.one"
+  COOKIE_SECURE: "true"
   COOKIE_SAME_SITE: "lax"
   ALLOW_NGROK_ORIGINS: "false"
