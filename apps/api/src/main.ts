@@ -6,6 +6,20 @@ import { AppModule } from "./app.module";
 import { corsOriginValidator } from "./common/cors";
 import { ensureUploadRootExists, resolveUploadRoot } from "./common/uploads";
 
+function resolveListenPort(...candidates: Array<string | undefined>) {
+  for (const candidate of candidates) {
+    const value = candidate?.trim();
+    if (!value || !/^\d+$/.test(value)) continue;
+
+    const port = Number(value);
+    if (Number.isInteger(port) && port > 0 && port <= 65535) {
+      return port;
+    }
+  }
+
+  return 4000;
+}
+
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const httpApp = app.getHttpAdapter().getInstance();
@@ -52,7 +66,11 @@ async function bootstrap() {
     credentials: true,
   });
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
-  const port = Number(process.env.API_PORT || process.env.PORT || 4000);
+  const port = resolveListenPort(
+    process.env.PORT,
+    process.env.API_INTERNAL_PORT,
+    process.env.API_PORT,
+  );
   await app.listen(port, "0.0.0.0");
 }
 

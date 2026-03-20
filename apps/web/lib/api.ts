@@ -1,4 +1,8 @@
-const DEFAULT_LOCAL_API_PORT = process.env.API_PORT || "4000";
+const DEFAULT_LOCAL_API_PORT = resolveNumericPort(
+  process.env.API_INTERNAL_PORT,
+  process.env.API_PORT,
+  "4000",
+);
 const DEFAULT_DIRECT_API_BASE = process.env.NEXT_PUBLIC_API_URL?.trim() || "";
 const DEFAULT_LEGACY_API_BASE = process.env.NEXT_PUBLIC_LEGACY_API_URL?.trim() || "/api";
 
@@ -36,6 +40,16 @@ function normalizeApiBase(value: string) {
 
 function normalizeApiUpstream(value: string) {
   return normalizeApiBase(value).replace(/\/api$/i, "");
+}
+
+function resolveNumericPort(...candidates: Array<string | undefined>) {
+  for (const candidate of candidates) {
+    const value = candidate?.trim();
+    if (!value || !/^\d+$/.test(value)) continue;
+    return value;
+  }
+
+  return "4000";
 }
 
 function resolveApiTarget(path: string) {

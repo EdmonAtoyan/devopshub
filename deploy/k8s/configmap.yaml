@@ -9,7 +9,7 @@ metadata:
 data:
   NODE_ENV: "production"
   PORT: "3000"
-  API_PORT: "4000"
+  API_INTERNAL_PORT: "4000"
   POSTGRES_DB: "devopscommunity"
   POSTGRES_USER: "devopscommunity"
   NEXT_PUBLIC_API_URL: "/"

@@ -26,11 +26,12 @@ spec:
         app.kubernetes.io/name: api
         app.kubernetes.io/part-of: devops-community
     spec:
+      enableServiceLinks: false
       terminationGracePeriodSeconds: 30
       containers:
         - name: api
-          image: ghcr.io/example/devops-community-api:1.0.0
-          imagePullPolicy: IfNotPresent
+          image: edmond25/devopshub-api:latest
+          imagePullPolicy: Always
           ports:
             - containerPort: 4000
               name: http
@@ -40,11 +41,11 @@ spec:
                 configMapKeyRef:
                   name: community-config
                   key: NODE_ENV
-            - name: API_PORT
+            - name: PORT
               valueFrom:
                 configMapKeyRef:
                   name: community-config
-                  key: API_PORT
+                  key: API_INTERNAL_PORT
             - name: NEXT_PUBLIC_SITE_URL
               valueFrom:
                 configMapKeyRef:

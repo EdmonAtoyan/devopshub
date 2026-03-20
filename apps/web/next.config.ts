@@ -38,7 +38,11 @@ const nextConfig: NextConfig = {
 export default nextConfig;
 
 function resolveApiUpstream() {
-  const defaultLocalApiUrl = `http://127.0.0.1:${process.env.API_PORT || "4000"}`;
+  const defaultLocalApiUrl = `http://127.0.0.1:${resolveNumericPort(
+    process.env.API_INTERNAL_PORT,
+    process.env.API_PORT,
+    "4000",
+  )}`;
   const explicitUpstream = process.env.API_UPSTREAM_URL?.trim();
   if (explicitUpstream) {
     return normalizeApiUpstream(explicitUpstream);
@@ -53,6 +57,20 @@ function normalizeApiUpstream(configured: string) {
     const basePath = parsed.pathname.replace(/\/api\/?$/i, "").replace(/\/+$/, "");
     return `${parsed.protocol}//${parsed.host}${basePath}`;
   } catch {
-    return `http://127.0.0.1:${process.env.API_PORT || "4000"}`;
+    return `http://127.0.0.1:${resolveNumericPort(
+      process.env.API_INTERNAL_PORT,
+      process.env.API_PORT,
+      "4000",
+    )}`;
   }
+}
+
+function resolveNumericPort(...candidates: Array<string | undefined>) {
+  for (const candidate of candidates) {
+    const value = candidate?.trim();
+    if (!value || !/^\d+$/.test(value)) continue;
+    return value;
+  }
+
+  return "4000";
 }
