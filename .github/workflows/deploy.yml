@@ -14,6 +14,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME || 'edmond25' }}
   PUBLIC_SITE_URL: ${{ vars.PUBLIC_SITE_URL || 'https://devopshub.one' }}
   INGRESS_HOST: ${{ vars.INGRESS_HOST || 'devopshub.one' }}
   TLS_SECRET_NAME: ${{ vars.TLS_SECRET_NAME || 'devopshub-one-tls' }}
@@ -21,8 +22,8 @@ env:
   POSTGRES_USER: ${{ vars.POSTGRES_USER || 'devops' }}
   K8S_NAMESPACE: devopshub
   K8S_SECRET_NAME: community-secrets
-  API_IMAGE_NAME: edmond25/devopshub-api
-  WEB_IMAGE_NAME: edmond25/devopshub-web
+  API_IMAGE_NAME: ${{ format('{0}/devopshub-api', vars.DOCKERHUB_USERNAME || 'edmond25') }}
+  WEB_IMAGE_NAME: ${{ format('{0}/devopshub-web', vars.DOCKERHUB_USERNAME || 'edmond25') }}
 
 jobs:
   build-and-push:
@@ -36,16 +37,14 @@ jobs:
 
       - name: Validate registry settings
         env:
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         run: |
-          test -n "$DOCKERHUB_USERNAME" || { echo "Missing secret: DOCKERHUB_USERNAME"; exit 1; }
           test -n "$DOCKERHUB_TOKEN" || { echo "Missing secret: DOCKERHUB_TOKEN"; exit 1; }
 
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          username: ${{ env.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Define image tags

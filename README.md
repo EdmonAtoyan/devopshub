@@ -146,12 +146,12 @@ When you run the workflow manually with `workflow_dispatch`, it can also:
 
 Configure:
 
-- secret: `DOCKERHUB_USERNAME`
 - secret: `DOCKERHUB_TOKEN`
 - secret: `KUBE_CONFIG_DATA` as a base64-encoded kubeconfig
 - secret: `JWT_SECRET`
 - secret: `POSTGRES_PASSWORD`
 - optional secrets: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_CALLBACK_URL`, `GIPHY_API_KEY`, `RESEND_*`, `SMTP_*`, `TURNSTILE_SECRET_KEY`, `RECAPTCHA_SECRET_KEY`
+- optional variable: `DOCKERHUB_USERNAME` (defaults to `edmond25`)
 - variable: `PUBLIC_SITE_URL`
 - optional variable: `POSTGRES_DB` (defaults to `devopshub`)
 - optional variable: `POSTGRES_USER` (defaults to `devops`)
