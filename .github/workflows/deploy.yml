@@ -1,4 +1,4 @@
-name: Build And Publish Containers
+name: Build And Deploy Containers
 
 on:
   push:
@@ -50,23 +50,23 @@ jobs:
       - name: Define image tags
         id: images
         run: |
+          set -euo pipefail
           sha="${{ github.sha }}"
           echo "api_image=${API_IMAGE_NAME}:${sha}" >> "$GITHUB_OUTPUT"
-          echo "api_latest=${API_IMAGE_NAME}:latest" >> "$GITHUB_OUTPUT"
           echo "web_image=${WEB_IMAGE_NAME}:${sha}" >> "$GITHUB_OUTPUT"
-          echo "web_latest=${WEB_IMAGE_NAME}:latest" >> "$GITHUB_OUTPUT"
 
       - name: Build API image
         run: |
+          set -euo pipefail
           docker build \
             --pull \
             -f apps/api/Dockerfile \
             -t "${{ steps.images.outputs.api_image }}" \
-            -t "${{ steps.images.outputs.api_latest }}" \
             .
 
       - name: Build web image
         run: |
+          set -euo pipefail
           docker build \
             --pull \
             -f apps/web/Dockerfile \
@@ -76,23 +76,23 @@ jobs:
             --build-arg API_UPSTREAM_URL="http://api:4000" \
             --build-arg API_PORT="4000" \
             -t "${{ steps.images.outputs.web_image }}" \
-            -t "${{ steps.images.outputs.web_latest }}" \
             .
 
       - name: Push API image
         run: |
+          set -euo pipefail
           docker push "${{ steps.images.outputs.api_image }}"
-          docker push "${{ steps.images.outputs.api_latest }}"
 
       - name: Push web image
         run: |
+          set -euo pipefail
           docker push "${{ steps.images.outputs.web_image }}"
-          docker push "${{ steps.images.outputs.web_latest }}"
 
   deploy-to-kubernetes:
-    if: ${{ github.event_name == 'workflow_dispatch' }}
+    if: ${{ github.ref == 'refs/heads/main' }}
     needs: build-and-push
     runs-on: ubuntu-latest
+    environment: production
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -108,12 +108,14 @@ jobs:
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
         run: |
+          set -euo pipefail
           test -n "$KUBE_CONFIG_DATA" || { echo "Missing secret: KUBE_CONFIG_DATA"; exit 1; }
           test -n "$JWT_SECRET" || { echo "Missing secret: JWT_SECRET"; exit 1; }
           test -n "$POSTGRES_PASSWORD" || { echo "Missing secret: POSTGRES_PASSWORD"; exit 1; }
 
       - name: Configure kubeconfig
         run: |
+          set -euo pipefail
           mkdir -p "$HOME/.kube"
           echo "${{ secrets.KUBE_CONFIG_DATA }}" | base64 --decode > "$HOME/.kube/config"
 
@@ -137,10 +139,12 @@ jobs:
           TURNSTILE_SECRET_KEY: ${{ secrets.TURNSTILE_SECRET_KEY }}
           RECAPTCHA_SECRET_KEY: ${{ secrets.RECAPTCHA_SECRET_KEY }}
         run: |
+          set -euo pipefail
           kubectl apply -f deploy/k8s/namespace.yaml
 
           callback_url="${GOOGLE_CALLBACK_URL:-${PUBLIC_SITE_URL%/}/api/auth/google/callback}"
           database_url="postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public"
+          secret_manifest="${RUNNER_TEMP}/community-secrets.yaml"
 
           kubectl -n "${K8S_NAMESPACE}" create secret generic "${K8S_SECRET_NAME}" \
             --from-literal=DATABASE_URL="$database_url" \
@@ -161,12 +165,40 @@ jobs:
             --from-literal=SMTP_REPLY_TO="$SMTP_REPLY_TO" \
             --from-literal=TURNSTILE_SECRET_KEY="$TURNSTILE_SECRET_KEY" \
             --from-literal=RECAPTCHA_SECRET_KEY="$RECAPTCHA_SECRET_KEY" \
-            --dry-run=client -o yaml | kubectl apply -f -
+            --dry-run=client -o yaml > "$secret_manifest"
+
+          for required_key in \
+            DATABASE_URL \
+            JWT_SECRET \
+            POSTGRES_PASSWORD \
+            GOOGLE_CLIENT_ID \
+            GOOGLE_CLIENT_SECRET \
+            GOOGLE_CALLBACK_URL \
+            GIPHY_API_KEY \
+            RESEND_API_KEY \
+            RESEND_FROM \
+            SMTP_HOST \
+            SMTP_PORT \
+            SMTP_SECURE \
+            SMTP_USER \
+            SMTP_PASS \
+            SMTP_FROM \
+            SMTP_REPLY_TO \
+            TURNSTILE_SECRET_KEY \
+            RECAPTCHA_SECRET_KEY
+          do
+            grep -q "^  ${required_key}:" "$secret_manifest" || { echo "Missing secret key in manifest: ${required_key}"; exit 1; }
+          done
+
+          kubectl -n "${K8S_NAMESPACE}" delete secret "${K8S_SECRET_NAME}" --ignore-not-found --wait=true
+          kubectl create -f "$secret_manifest"
 
       - name: Render Kubernetes manifests
+        id: render
         run: |
-          rm -rf /tmp/devopshub-k8s
-          cp -R deploy/k8s /tmp/devopshub-k8s
+          set -euo pipefail
+          render_dir="$(mktemp -d)"
+          cp -R deploy/k8s/. "$render_dir"/
           escape_sed() {
             printf '%s' "$1" | sed 's/[&|]/\\&/g'
           }
@@ -176,41 +208,107 @@ jobs:
           postgres_db="$(escape_sed "${POSTGRES_DB}")"
           postgres_user="$(escape_sed "${POSTGRES_USER}")"
 
-          sed -i "s|edmond25/devopshub-api:latest|${{ needs.build-and-push.outputs.api_image }}|g" /tmp/devopshub-k8s/api-deployment.yaml
-          sed -i "s|edmond25/devopshub-web:latest|${{ needs.build-and-push.outputs.web_image }}|g" /tmp/devopshub-k8s/web-deployment.yaml
-          sed -i "s|https://devopshub.one|${public_site_url}|g" /tmp/devopshub-k8s/configmap.yaml
-          sed -i "s|POSTGRES_DB: \"devopshub\"|POSTGRES_DB: \"${postgres_db}\"|g" /tmp/devopshub-k8s/configmap.yaml
-          sed -i "s|POSTGRES_USER: \"devops\"|POSTGRES_USER: \"${postgres_user}\"|g" /tmp/devopshub-k8s/configmap.yaml
-          sed -i "s|devopshub.one|${ingress_host}|g" /tmp/devopshub-k8s/ingress.yaml
-          sed -i "s|devopshub-one-tls|${tls_secret_name}|g" /tmp/devopshub-k8s/ingress.yaml
+          sed -i "s|edmond25/devopshub-api:latest|${{ needs.build-and-push.outputs.api_image }}|g" "$render_dir/api-deployment.yaml"
+          sed -i "s|edmond25/devopshub-web:latest|${{ needs.build-and-push.outputs.web_image }}|g" "$render_dir/web-deployment.yaml"
+          sed -i "s|https://devopshub.one|${public_site_url}|g" "$render_dir/configmap.yaml"
+          sed -i "s|POSTGRES_DB: \"devopshub\"|POSTGRES_DB: \"${postgres_db}\"|g" "$render_dir/configmap.yaml"
+          sed -i "s|POSTGRES_USER: \"devops\"|POSTGRES_USER: \"${postgres_user}\"|g" "$render_dir/configmap.yaml"
+          sed -i "s|devopshub.one|${ingress_host}|g" "$render_dir/ingress.yaml"
+          sed -i "s|devopshub-one-tls|${tls_secret_name}|g" "$render_dir/ingress.yaml"
+
+          echo "render_dir=${render_dir}" >> "$GITHUB_OUTPUT"
 
       - name: Validate rendered manifests
         run: |
-          if rg -n "localhost|127\\.0\\.0\\.1" /tmp/devopshub-k8s; then
+          set -euo pipefail
+          render_dir="${{ steps.render.outputs.render_dir }}"
+          rendered_manifest="${RUNNER_TEMP}/devopshub-rendered.yaml"
+
+          kubectl kustomize "$render_dir" > "$rendered_manifest"
+
+          if grep -nE "localhost|127\\.0\\.0\\.1" "$rendered_manifest"; then
             echo "Rendered manifests still contain local-only addresses."
             exit 1
           fi
-          kubectl apply --dry-run=client -k /tmp/devopshub-k8s
+
+          if grep -nE "image: .*:latest$" "$rendered_manifest"; then
+            echo "Rendered manifests still contain mutable latest image references."
+            exit 1
+          fi
+
+          for required_key in \
+            NODE_ENV \
+            API_PORT \
+            WEB_PORT \
+            POSTGRES_DB \
+            POSTGRES_USER \
+            NEXT_PUBLIC_API_URL \
+            NEXT_PUBLIC_LEGACY_API_URL \
+            API_UPSTREAM_URL \
+            SITE_URL \
+            NEXT_PUBLIC_SITE_URL \
+            RESET_PASSWORD_BASE_URL \
+            EMAIL_VERIFICATION_BASE_URL \
+            CORS_ORIGIN \
+            UPLOAD_ROOT
+          do
+            grep -q "^  ${required_key}:" "$render_dir/configmap.yaml" || { echo "Missing config key in ConfigMap: ${required_key}"; exit 1; }
+          done
+
+          kubectl apply --dry-run=client -k "$render_dir"
+          kubectl apply --dry-run=server -k "$render_dir"
+
+      - name: Migrate legacy PostgreSQL deployment controller
+        run: |
+          set -euo pipefail
+          if kubectl -n "${K8S_NAMESPACE}" get deployment postgres >/dev/null 2>&1; then
+            echo "Removing legacy deployment/postgres before applying StatefulSet."
+            kubectl -n "${K8S_NAMESPACE}" delete deployment postgres --wait=true
+            kubectl -n "${K8S_NAMESPACE}" wait --for=delete pod -l app=postgres --timeout=300s || true
+          fi
 
       - name: Apply manifests
-        run: kubectl apply -k /tmp/devopshub-k8s
+        run: |
+          set -euo pipefail
+          kubectl apply -k "${{ steps.render.outputs.render_dir }}"
 
       - name: Show deployed resources
-        run: kubectl -n "${K8S_NAMESPACE}" get deploy,svc,ingress,pvc,endpoints,pods
+        run: |
+          set -euo pipefail
+          kubectl -n "${K8S_NAMESPACE}" get statefulset,deploy,svc,ingress,pvc,endpoints,pods
 
       - name: Wait for rollouts
+        id: rollout
+        continue-on-error: true
         run: |
-          kubectl -n "${K8S_NAMESPACE}" rollout status deployment/postgres --timeout=300s
+          set -euo pipefail
+          kubectl -n "${K8S_NAMESPACE}" rollout status statefulset/postgres --timeout=300s
           kubectl -n "${K8S_NAMESPACE}" rollout status deployment/api --timeout=300s
           kubectl -n "${K8S_NAMESPACE}" rollout status deployment/web --timeout=300s
 
-      - name: Deployment diagnostics
-        if: ${{ failure() }}
+      - name: Roll back stateless workloads on failed rollout
+        if: ${{ steps.rollout.outcome == 'failure' }}
         run: |
-          kubectl -n "${K8S_NAMESPACE}" get deploy,svc,ingress,pvc,endpoints,pods
-          kubectl -n "${K8S_NAMESPACE}" describe deployment postgres
+          set -euo pipefail
+          kubectl -n "${K8S_NAMESPACE}" rollout undo deployment/api || true
+          kubectl -n "${K8S_NAMESPACE}" rollout undo deployment/web || true
+          kubectl -n "${K8S_NAMESPACE}" rollout status deployment/api --timeout=300s || true
+          kubectl -n "${K8S_NAMESPACE}" rollout status deployment/web --timeout=300s || true
+
+      - name: Deployment diagnostics
+        if: ${{ steps.rollout.outcome == 'failure' }}
+        run: |
+          set -euo pipefail
+          kubectl -n "${K8S_NAMESPACE}" get statefulset,deploy,svc,ingress,pvc,endpoints,pods
+          kubectl -n "${K8S_NAMESPACE}" describe statefulset postgres
           kubectl -n "${K8S_NAMESPACE}" describe deployment api
           kubectl -n "${K8S_NAMESPACE}" describe deployment web
-          kubectl -n "${K8S_NAMESPACE}" logs deployment/postgres --tail=100 || true
+          kubectl -n "${K8S_NAMESPACE}" logs pod/postgres-0 --tail=100 || true
           kubectl -n "${K8S_NAMESPACE}" logs deployment/api --tail=200 || true
           kubectl -n "${K8S_NAMESPACE}" logs deployment/web --tail=200 || true
+
+      - name: Fail deployment if rollout was unsuccessful
+        if: ${{ steps.rollout.outcome == 'failure' }}
+        run: |
+          echo "Deployment failed. Web and API were rolled back to the previous ReplicaSet. PostgreSQL was left unchanged for data safety."
+          exit 1

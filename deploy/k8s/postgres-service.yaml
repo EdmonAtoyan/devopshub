@@ -8,7 +8,7 @@ metadata:
     app.kubernetes.io/name: postgres
     app.kubernetes.io/part-of: devopshub
 spec:
-  type: ClusterIP
+  clusterIP: None
   selector:
     app: postgres
   ports:

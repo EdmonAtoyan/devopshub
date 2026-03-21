@@ -11,6 +11,7 @@ spec:
   replicas: 1
   revisionHistoryLimit: 3
   minReadySeconds: 5
+  progressDeadlineSeconds: 300
   selector:
     matchLabels:
       app: api
@@ -29,7 +30,7 @@ spec:
       initContainers:
         - name: migrate
           image: edmond25/devopshub-api:latest
-          imagePullPolicy: Always
+          imagePullPolicy: IfNotPresent
           command:
             - node
             - scripts/prepare-startup.js
@@ -48,7 +49,7 @@ spec:
       containers:
         - name: api
           image: edmond25/devopshub-api:latest
-          imagePullPolicy: Always
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 4000
               name: http
