@@ -9,8 +9,18 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   PUBLIC_SITE_URL: ${{ vars.PUBLIC_SITE_URL || 'https://devopshub.one' }}
+  INGRESS_HOST: ${{ vars.INGRESS_HOST || 'devopshub.one' }}
+  TLS_SECRET_NAME: ${{ vars.TLS_SECRET_NAME || 'devopshub-one-tls' }}
+  POSTGRES_DB: ${{ vars.POSTGRES_DB || 'devopshub' }}
+  POSTGRES_USER: ${{ vars.POSTGRES_USER || 'devops' }}
+  K8S_NAMESPACE: devopshub
+  K8S_SECRET_NAME: community-secrets
   API_IMAGE_NAME: edmond25/devopshub-api
   WEB_IMAGE_NAME: edmond25/devopshub-web
 
@@ -23,6 +33,14 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Validate registry settings
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          test -n "$DOCKERHUB_USERNAME" || { echo "Missing secret: DOCKERHUB_USERNAME"; exit 1; }
+          test -n "$DOCKERHUB_TOKEN" || { echo "Missing secret: DOCKERHUB_TOKEN"; exit 1; }
 
       - name: Login to Docker Hub
         uses: docker/login-action@v3
@@ -42,6 +60,7 @@ jobs:
       - name: Build API image
         run: |
           docker build \
+            --pull \
             -f apps/api/Dockerfile \
             -t "${{ steps.images.outputs.api_image }}" \
             -t "${{ steps.images.outputs.api_latest }}" \
@@ -50,12 +69,13 @@ jobs:
       - name: Build web image
         run: |
           docker build \
+            --pull \
             -f apps/web/Dockerfile \
             --build-arg NEXT_PUBLIC_SITE_URL="${PUBLIC_SITE_URL}" \
             --build-arg NEXT_PUBLIC_API_URL="/" \
             --build-arg NEXT_PUBLIC_LEGACY_API_URL="/api" \
             --build-arg API_UPSTREAM_URL="http://api:4000" \
-            --build-arg API_INTERNAL_PORT="4000" \
+            --build-arg API_PORT="4000" \
             -t "${{ steps.images.outputs.web_image }}" \
             -t "${{ steps.images.outputs.web_latest }}" \
             .
@@ -86,26 +106,112 @@ jobs:
       - name: Validate deployment settings
         env:
           KUBE_CONFIG_DATA: ${{ secrets.KUBE_CONFIG_DATA }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
         run: |
           test -n "$KUBE_CONFIG_DATA" || { echo "Missing secret: KUBE_CONFIG_DATA"; exit 1; }
+          test -n "$JWT_SECRET" || { echo "Missing secret: JWT_SECRET"; exit 1; }
+          test -n "$POSTGRES_PASSWORD" || { echo "Missing secret: POSTGRES_PASSWORD"; exit 1; }
 
       - name: Configure kubeconfig
         run: |
           mkdir -p "$HOME/.kube"
           echo "${{ secrets.KUBE_CONFIG_DATA }}" | base64 --decode > "$HOME/.kube/config"
 
+      - name: Sync Kubernetes secret
+        env:
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          GOOGLE_CALLBACK_URL: ${{ secrets.GOOGLE_CALLBACK_URL }}
+          GIPHY_API_KEY: ${{ secrets.GIPHY_API_KEY }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          RESEND_FROM: ${{ secrets.RESEND_FROM }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_SECURE: ${{ secrets.SMTP_SECURE }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          SMTP_FROM: ${{ secrets.SMTP_FROM }}
+          SMTP_REPLY_TO: ${{ secrets.SMTP_REPLY_TO }}
+          TURNSTILE_SECRET_KEY: ${{ secrets.TURNSTILE_SECRET_KEY }}
+          RECAPTCHA_SECRET_KEY: ${{ secrets.RECAPTCHA_SECRET_KEY }}
+        run: |
+          kubectl apply -f deploy/k8s/namespace.yaml
+
+          callback_url="${GOOGLE_CALLBACK_URL:-${PUBLIC_SITE_URL%/}/api/auth/google/callback}"
+          database_url="postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public"
+
+          kubectl -n "${K8S_NAMESPACE}" create secret generic "${K8S_SECRET_NAME}" \
+            --from-literal=DATABASE_URL="$database_url" \
+            --from-literal=JWT_SECRET="$JWT_SECRET" \
+            --from-literal=POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
+            --from-literal=GOOGLE_CLIENT_ID="$GOOGLE_CLIENT_ID" \
+            --from-literal=GOOGLE_CLIENT_SECRET="$GOOGLE_CLIENT_SECRET" \
+            --from-literal=GOOGLE_CALLBACK_URL="$callback_url" \
+            --from-literal=GIPHY_API_KEY="$GIPHY_API_KEY" \
+            --from-literal=RESEND_API_KEY="$RESEND_API_KEY" \
+            --from-literal=RESEND_FROM="$RESEND_FROM" \
+            --from-literal=SMTP_HOST="$SMTP_HOST" \
+            --from-literal=SMTP_PORT="$SMTP_PORT" \
+            --from-literal=SMTP_SECURE="$SMTP_SECURE" \
+            --from-literal=SMTP_USER="$SMTP_USER" \
+            --from-literal=SMTP_PASS="$SMTP_PASS" \
+            --from-literal=SMTP_FROM="$SMTP_FROM" \
+            --from-literal=SMTP_REPLY_TO="$SMTP_REPLY_TO" \
+            --from-literal=TURNSTILE_SECRET_KEY="$TURNSTILE_SECRET_KEY" \
+            --from-literal=RECAPTCHA_SECRET_KEY="$RECAPTCHA_SECRET_KEY" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
       - name: Render Kubernetes manifests
         run: |
           rm -rf /tmp/devopshub-k8s
           cp -R deploy/k8s /tmp/devopshub-k8s
+          escape_sed() {
+            printf '%s' "$1" | sed 's/[&|]/\\&/g'
+          }
+          public_site_url="$(escape_sed "${PUBLIC_SITE_URL%/}")"
+          ingress_host="$(escape_sed "${INGRESS_HOST}")"
+          tls_secret_name="$(escape_sed "${TLS_SECRET_NAME}")"
+          postgres_db="$(escape_sed "${POSTGRES_DB}")"
+          postgres_user="$(escape_sed "${POSTGRES_USER}")"
+
           sed -i "s|edmond25/devopshub-api:latest|${{ needs.build-and-push.outputs.api_image }}|g" /tmp/devopshub-k8s/api-deployment.yaml
           sed -i "s|edmond25/devopshub-web:latest|${{ needs.build-and-push.outputs.web_image }}|g" /tmp/devopshub-k8s/web-deployment.yaml
+          sed -i "s|https://devopshub.one|${public_site_url}|g" /tmp/devopshub-k8s/configmap.yaml
+          sed -i "s|POSTGRES_DB: \"devopshub\"|POSTGRES_DB: \"${postgres_db}\"|g" /tmp/devopshub-k8s/configmap.yaml
+          sed -i "s|POSTGRES_USER: \"devops\"|POSTGRES_USER: \"${postgres_user}\"|g" /tmp/devopshub-k8s/configmap.yaml
+          sed -i "s|devopshub.one|${ingress_host}|g" /tmp/devopshub-k8s/ingress.yaml
+          sed -i "s|devopshub-one-tls|${tls_secret_name}|g" /tmp/devopshub-k8s/ingress.yaml
+
+      - name: Validate rendered manifests
+        run: |
+          if rg -n "localhost|127\\.0\\.0\\.1" /tmp/devopshub-k8s; then
+            echo "Rendered manifests still contain local-only addresses."
+            exit 1
+          fi
+          kubectl apply --dry-run=client -k /tmp/devopshub-k8s
 
       - name: Apply manifests
         run: kubectl apply -k /tmp/devopshub-k8s
 
+      - name: Show deployed resources
+        run: kubectl -n "${K8S_NAMESPACE}" get deploy,svc,ingress,pvc,endpoints,pods
+
       - name: Wait for rollouts
         run: |
-          kubectl -n devopshub rollout status deployment/postgres --timeout=300s
-          kubectl -n devopshub rollout status deployment/api --timeout=300s
-          kubectl -n devopshub rollout status deployment/web --timeout=300s
+          kubectl -n "${K8S_NAMESPACE}" rollout status deployment/postgres --timeout=300s
+          kubectl -n "${K8S_NAMESPACE}" rollout status deployment/api --timeout=300s
+          kubectl -n "${K8S_NAMESPACE}" rollout status deployment/web --timeout=300s
+
+      - name: Deployment diagnostics
+        if: ${{ failure() }}
+        run: |
+          kubectl -n "${K8S_NAMESPACE}" get deploy,svc,ingress,pvc,endpoints,pods
+          kubectl -n "${K8S_NAMESPACE}" describe deployment postgres
+          kubectl -n "${K8S_NAMESPACE}" describe deployment api
+          kubectl -n "${K8S_NAMESPACE}" describe deployment web
+          kubectl -n "${K8S_NAMESPACE}" logs deployment/postgres --tail=100 || true
+          kubectl -n "${K8S_NAMESPACE}" logs deployment/api --tail=200 || true
+          kubectl -n "${K8S_NAMESPACE}" logs deployment/web --tail=200 || true

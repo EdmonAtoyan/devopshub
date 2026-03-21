@@ -10,6 +10,11 @@ const avatarExtensionByMimeType: Record<string, string> = {
 };
 
 export function resolveUploadRoot() {
+  const configured = process.env.UPLOAD_ROOT?.trim();
+  if (configured) {
+    return path.resolve(configured);
+  }
+
   const fromCwd = path.resolve(process.cwd(), "uploads");
   const fromWorkspace = path.resolve(process.cwd(), "../../uploads");
   if (fs.existsSync(path.resolve(process.cwd(), ".env"))) return fromCwd;

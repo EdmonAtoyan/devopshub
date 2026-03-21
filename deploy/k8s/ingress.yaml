@@ -20,24 +20,52 @@ spec:
     - host: devopshub.one
       http:
         paths:
+          - path: /socket.io
+            pathType: Prefix
+            backend:
+              service:
+                name: api
+                port:
+                  name: http
+          - path: /uploads
+            pathType: Prefix
+            backend:
+              service:
+                name: api
+                port:
+                  name: http
+          - path: /users
+            pathType: Prefix
+            backend:
+              service:
+                name: api
+                port:
+                  name: http
+          - path: /posts
+            pathType: Prefix
+            backend:
+              service:
+                name: api
+                port:
+                  name: http
           - path: /auth
             pathType: Prefix
             backend:
               service:
                 name: api
                 port:
-                  number: 4000
+                  name: http
           - path: /api
             pathType: Prefix
             backend:
               service:
                 name: api
                 port:
-                  number: 4000
+                  name: http
           - path: /
             pathType: Prefix
             backend:
               service:
                 name: web
                 port:
-                  number: 80
+                  name: http

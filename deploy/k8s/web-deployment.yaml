@@ -26,6 +26,7 @@ spec:
         app.kubernetes.io/name: web
         app.kubernetes.io/part-of: devopshub
     spec:
+      automountServiceAccountToken: false
       enableServiceLinks: false
       terminationGracePeriodSeconds: 30
       containers:
@@ -38,24 +39,33 @@ spec:
           envFrom:
             - configMapRef:
                 name: community-config
+          env:
+            - name: PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: community-config
+                  key: WEB_PORT
           startupProbe:
             httpGet:
-              path: /api/health
+              path: /health
               port: http
             failureThreshold: 30
             periodSeconds: 5
+            timeoutSeconds: 5
           readinessProbe:
             httpGet:
-              path: /api/health
+              path: /health
               port: http
             initialDelaySeconds: 5
             periodSeconds: 10
+            timeoutSeconds: 5
           livenessProbe:
             httpGet:
-              path: /api/health
+              path: /health
               port: http
             initialDelaySeconds: 15
             periodSeconds: 20
+            timeoutSeconds: 5
           resources:
             requests:
               cpu: 100m

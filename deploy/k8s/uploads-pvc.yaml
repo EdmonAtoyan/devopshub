@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: uploads-data
+  namespace: devopshub
+  labels:
+    app: api
+    app.kubernetes.io/name: uploads
+    app.kubernetes.io/part-of: devopshub
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi

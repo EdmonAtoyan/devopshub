@@ -130,21 +130,33 @@ Notes:
 
 - the ingress expects a TLS secret named `devopshub-one-tls`
 - PostgreSQL uses the `postgres-data` PVC declared in `deploy/k8s/postgres-pvc.yaml`
+- API uploads use the `uploads-data` PVC declared in `deploy/k8s/uploads-pvc.yaml`
 - the API callback URL for Google OAuth defaults to `${NEXT_PUBLIC_SITE_URL}/api/auth/google/callback`
-- the API container retries database connections and safely bootstraps the schema on empty databases before NestJS starts
+- the API deployment runs Prisma startup preparation in an init container before the application starts
 
 ## CI/CD
 
 `.github/workflows/deploy.yml` now builds and publishes the API and web images to Docker Hub on every push to `main`.
 
-When you run the workflow manually with `workflow_dispatch`, it can also apply the Kubernetes manifests after pinning the deployment to the image SHA it just built. Configure:
+When you run the workflow manually with `workflow_dispatch`, it can also:
+
+- recreate the `community-secrets` Kubernetes secret from GitHub Actions secrets
+- render the Kubernetes manifests with the configured public site URL, ingress host, and TLS secret name
+- apply the manifests after pinning the API and web deployments to the image SHA it just built
+
+Configure:
 
 - secret: `DOCKERHUB_USERNAME`
 - secret: `DOCKERHUB_TOKEN`
 - secret: `KUBE_CONFIG_DATA` as a base64-encoded kubeconfig
+- secret: `JWT_SECRET`
+- secret: `POSTGRES_PASSWORD`
+- optional secrets: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_CALLBACK_URL`, `GIPHY_API_KEY`, `RESEND_*`, `SMTP_*`, `TURNSTILE_SECRET_KEY`, `RECAPTCHA_SECRET_KEY`
 - variable: `PUBLIC_SITE_URL`
-
-The deploy step assumes the cluster already has a `community-secrets` secret or that you manage `deploy/k8s/secret.yaml` separately.
+- optional variable: `POSTGRES_DB` (defaults to `devopshub`)
+- optional variable: `POSTGRES_USER` (defaults to `devops`)
+- optional variable: `INGRESS_HOST` (defaults to `devopshub.one`)
+- optional variable: `TLS_SECRET_NAME` (defaults to `devopshub-one-tls`)
 
 ## Environment Notes
 

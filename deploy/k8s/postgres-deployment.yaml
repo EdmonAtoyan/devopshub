@@ -22,6 +22,7 @@ spec:
         app.kubernetes.io/name: postgres
         app.kubernetes.io/part-of: devopshub
     spec:
+      automountServiceAccountToken: false
       enableServiceLinks: false
       terminationGracePeriodSeconds: 60
       containers:
@@ -60,6 +61,7 @@ spec:
                 - pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"
             failureThreshold: 30
             periodSeconds: 10
+            timeoutSeconds: 5
           readinessProbe:
             exec:
               command:
@@ -68,11 +70,16 @@ spec:
                 - pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"
             initialDelaySeconds: 5
             periodSeconds: 10
+            timeoutSeconds: 5
           livenessProbe:
-            tcpSocket:
-              port: postgres
+            exec:
+              command:
+                - sh
+                - -c
+                - pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"
             initialDelaySeconds: 20
             periodSeconds: 20
+            timeoutSeconds: 5
           resources:
             requests:
               cpu: 250m

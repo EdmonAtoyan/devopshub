@@ -15,10 +15,7 @@ spec:
     matchLabels:
       app: api
   strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxUnavailable: 0
-      maxSurge: 1
+    type: Recreate
   template:
     metadata:
       labels:
@@ -26,8 +23,28 @@ spec:
         app.kubernetes.io/name: api
         app.kubernetes.io/part-of: devopshub
     spec:
+      automountServiceAccountToken: false
       enableServiceLinks: false
       terminationGracePeriodSeconds: 30
+      initContainers:
+        - name: migrate
+          image: edmond25/devopshub-api:latest
+          imagePullPolicy: Always
+          command:
+            - node
+            - scripts/prepare-startup.js
+          envFrom:
+            - configMapRef:
+                name: community-config
+            - secretRef:
+                name: community-secrets
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
       containers:
         - name: api
           image: edmond25/devopshub-api:latest
@@ -35,90 +52,14 @@ spec:
           ports:
             - containerPort: 4000
               name: http
-          env:
-            - name: NODE_ENV
-              valueFrom:
-                configMapKeyRef:
-                  name: community-config
-                  key: NODE_ENV
-            - name: PORT
-              valueFrom:
-                configMapKeyRef:
-                  name: community-config
-                  key: API_INTERNAL_PORT
-            - name: DATABASE_CONNECT_MAX_ATTEMPTS
-              valueFrom:
-                configMapKeyRef:
-                  name: community-config
-                  key: DATABASE_CONNECT_MAX_ATTEMPTS
-            - name: DATABASE_CONNECT_RETRY_MS
-              valueFrom:
-                configMapKeyRef:
-                  name: community-config
-                  key: DATABASE_CONNECT_RETRY_MS
-            - name: DB_STARTUP_TIMEOUT_MS
-              valueFrom:
-                configMapKeyRef:
-                  name: community-config
-                  key: DB_STARTUP_TIMEOUT_MS
-            - name: DB_STARTUP_RETRY_MS
-              valueFrom:
-                configMapKeyRef:
-                  name: community-config
-                  key: DB_STARTUP_RETRY_MS
-            - name: NEXT_PUBLIC_SITE_URL
-              valueFrom:
-                configMapKeyRef:
-                  name: community-config
-                  key: NEXT_PUBLIC_SITE_URL
-            - name: SITE_URL
-              valueFrom:
-                configMapKeyRef:
-                  name: community-config
-                  key: SITE_URL
-            - name: RESET_PASSWORD_BASE_URL
-              valueFrom:
-                configMapKeyRef:
-                  name: community-config
-                  key: RESET_PASSWORD_BASE_URL
-            - name: EMAIL_VERIFICATION_BASE_URL
-              valueFrom:
-                configMapKeyRef:
-                  name: community-config
-                  key: EMAIL_VERIFICATION_BASE_URL
-            - name: CORS_ORIGIN
-              valueFrom:
-                configMapKeyRef:
-                  name: community-config
-                  key: CORS_ORIGIN
-            - name: COOKIE_SECURE
-              valueFrom:
-                configMapKeyRef:
-                  name: community-config
-                  key: COOKIE_SECURE
-            - name: COOKIE_SAME_SITE
-              valueFrom:
-                configMapKeyRef:
-                  name: community-config
-                  key: COOKIE_SAME_SITE
-            - name: ALLOW_NGROK_ORIGINS
-              valueFrom:
-                configMapKeyRef:
-                  name: community-config
-                  key: ALLOW_NGROK_ORIGINS
-            - name: DATABASE_URL
-              valueFrom:
-                secretKeyRef:
-                  name: community-secrets
-                  key: DATABASE_URL
-            - name: JWT_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: community-secrets
-                  key: JWT_SECRET
           envFrom:
+            - configMapRef:
+                name: community-config
             - secretRef:
                 name: community-secrets
+          env:
+            - name: SKIP_DB_PREPARE
+              value: "true"
           volumeMounts:
             - name: uploads
               mountPath: /app/uploads
@@ -128,18 +69,21 @@ spec:
               port: http
             failureThreshold: 30
             periodSeconds: 5
+            timeoutSeconds: 5
           readinessProbe:
             httpGet:
               path: /health
               port: http
             initialDelaySeconds: 5
             periodSeconds: 10
+            timeoutSeconds: 5
           livenessProbe:
             httpGet:
               path: /health
               port: http
             initialDelaySeconds: 15
             periodSeconds: 20
+            timeoutSeconds: 5
           resources:
             requests:
               cpu: 250m
@@ -149,4 +93,5 @@ spec:
               memory: 512Mi
       volumes:
         - name: uploads
-          emptyDir: {}
+          persistentVolumeClaim:
+            claimName: uploads-data

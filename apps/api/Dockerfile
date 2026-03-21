@@ -33,4 +33,4 @@ WORKDIR /app/apps/api
 
 EXPOSE 4000
 
-CMD ["sh", "-c", "node scripts/prepare-startup.js && node dist/main"]
+CMD ["sh", "-c", "if [ \"$SKIP_DB_PREPARE\" = \"true\" ]; then node dist/main; else node scripts/prepare-startup.js && node dist/main; fi"]

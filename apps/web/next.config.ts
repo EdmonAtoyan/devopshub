@@ -44,18 +44,10 @@ function resolveApiUpstream() {
   }
 
   if (process.env.NODE_ENV === "production") {
-    return `http://api:${resolveNumericPort(
-      process.env.API_INTERNAL_PORT,
-      process.env.API_PORT,
-      "4000",
-    )}`;
+    return `http://api:${resolveNumericPort(process.env.API_PORT, "4000")}`;
   }
 
-  return `http://127.0.0.1:${resolveNumericPort(
-    process.env.API_INTERNAL_PORT,
-    process.env.API_PORT,
-    "4000",
-  )}`;
+  return `http://127.0.0.1:${resolveNumericPort(process.env.API_PORT, "4000")}`;
 }
 
 function normalizeApiUpstream(configured: string) {
@@ -64,11 +56,7 @@ function normalizeApiUpstream(configured: string) {
     const basePath = parsed.pathname.replace(/\/api\/?$/i, "").replace(/\/+$/, "");
     return `${parsed.protocol}//${parsed.host}${basePath}`;
   } catch {
-    return `http://127.0.0.1:${resolveNumericPort(
-      process.env.API_INTERNAL_PORT,
-      process.env.API_PORT,
-      "4000",
-    )}`;
+    return `http://127.0.0.1:${resolveNumericPort(process.env.API_PORT, "4000")}`;
   }
 }
 

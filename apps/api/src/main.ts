@@ -71,7 +71,6 @@ async function bootstrap() {
   app.useGlobalFilters(new HttpExceptionLoggingFilter());
   const port = resolveListenPort(
     process.env.PORT,
-    process.env.API_INTERNAL_PORT,
     process.env.API_PORT,
   );
   await app.listen(port, "0.0.0.0");

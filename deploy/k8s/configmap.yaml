@@ -8,8 +8,8 @@ metadata:
     app.kubernetes.io/part-of: devopshub
 data:
   NODE_ENV: "production"
-  PORT: "3000"
-  API_INTERNAL_PORT: "4000"
+  API_PORT: "4000"
+  WEB_PORT: "3000"
   DATABASE_CONNECT_MAX_ATTEMPTS: "30"
   DATABASE_CONNECT_RETRY_MS: "5000"
   DB_STARTUP_TIMEOUT_MS: "180000"
@@ -27,3 +27,4 @@ data:
   COOKIE_SECURE: "true"
   COOKIE_SAME_SITE: "lax"
   ALLOW_NGROK_ORIGINS: "false"
+  UPLOAD_ROOT: "/app/uploads"

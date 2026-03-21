@@ -1,5 +1,4 @@
 const DEFAULT_LOCAL_API_PORT = resolveNumericPort(
-  process.env.API_INTERNAL_PORT,
   process.env.API_PORT,
   "4000",
 );
