@@ -11,6 +11,13 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
 
+const oauthErrorMessages: Record<string, string> = {
+  google: "Google sign-in failed. Please try again.",
+  google_cancelled: "Google sign-in was cancelled before it completed.",
+  google_config: "Google sign-in is not configured for this deployment yet.",
+  google_no_email: "Your Google account did not provide an email address to complete sign-in.",
+};
+
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
@@ -20,7 +27,7 @@ export default function LoginPage() {
   const [verificationEmail, setVerificationEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [oauthError, setOauthError] = useState("");
-  const displayError = error || (oauthError === "google" ? "Google sign-in failed. Please try again." : "");
+  const displayError = error || oauthErrorMessages[oauthError] || "";
 
   useEffect(() => {
     setOauthError(new URLSearchParams(window.location.search).get("oauthError") || "");
