@@ -28,28 +28,28 @@ export class MailerService {
   async sendMail(message: MailMessage) {
     const provider = this.getProvider();
 
-    if (provider.kind === "preview") {
-      this.logPreview(message);
-      return;
-    }
-
     try {
-      if (provider.kind === "resend") {
-        await this.sendWithResend(provider, message);
-      } else {
-        await this.sendWithSmtp(provider, message);
-      }
-
+      await this.dispatch(provider, message);
       this.logger.log(`Email dispatched via ${provider.kind} to ${message.to}: ${message.subject}`);
     } catch (error) {
-      this.logger.error(
-        `Email delivery failed via ${provider.kind} to ${message.to}: ${message.subject}`,
-        error instanceof Error ? error.stack : undefined,
-      );
-      const hint = this.describeDeliveryFailure(provider.kind, error);
-      if (hint) {
-        this.logger.error(hint);
+      this.logDeliveryFailure(provider.kind, message, error);
+
+      if (provider.kind === "resend") {
+        const smtpFallback = this.getSmtpFallbackProvider();
+        if (smtpFallback) {
+          this.logger.warn(`Resend delivery failed for ${message.to}; attempting SMTP fallback.`);
+          try {
+            await this.sendWithSmtp(smtpFallback, message);
+            this.logger.log(`Email dispatched via smtp fallback to ${message.to}: ${message.subject}`);
+            return;
+          } catch (smtpError) {
+            this.logDeliveryFailure("smtp", message, smtpError);
+          }
+        } else {
+          this.logger.warn("SMTP fallback is unavailable; email delivery will fail until Resend is fixed or SMTP is fully configured.");
+        }
       }
+
       throw new InternalServerErrorException("Email delivery failed");
     }
   }
@@ -90,11 +90,64 @@ export class MailerService {
       throw new InternalServerErrorException(`SMTP is not fully configured: missing ${missing.join(", ")}`);
     }
 
+    const smtpHost = host!;
+    const smtpPort = port;
+    const smtpFrom = from!;
+
     return {
       kind: "smtp",
-      transporter: this.getTransporter(host, port),
-      from,
+      transporter: this.getTransporter(smtpHost, smtpPort),
+      from: smtpFrom,
     };
+  }
+
+  private getSmtpFallbackProvider(): Extract<MailProvider, { kind: "smtp" }> | null {
+    const host = process.env.SMTP_HOST?.trim();
+    const port = Number(process.env.SMTP_PORT || 0);
+    const from = this.resolveFromAddress(false);
+    const user = process.env.SMTP_USER?.trim();
+    const pass = process.env.SMTP_PASS?.trim();
+    const replyTo = process.env.SMTP_REPLY_TO?.trim();
+    const secure = process.env.SMTP_SECURE?.trim();
+    const hasAnySmtpConfig = Boolean(host || port || from || user || pass || replyTo || secure);
+
+    if (!hasAnySmtpConfig) {
+      return null;
+    }
+
+    const missing: string[] = [];
+    if (!host) missing.push("SMTP_HOST");
+    if (!port) missing.push("SMTP_PORT");
+    if (!from) missing.push("SMTP_FROM");
+
+    if (missing.length > 0) {
+      this.logger.warn(`SMTP fallback is partially configured and will be skipped: missing ${missing.join(", ")}`);
+      return null;
+    }
+
+    const smtpHost = host!;
+    const smtpPort = port;
+    const smtpFrom = from!;
+
+    return {
+      kind: "smtp",
+      transporter: this.getTransporter(smtpHost, smtpPort),
+      from: smtpFrom,
+    };
+  }
+
+  private async dispatch(provider: MailProvider, message: MailMessage) {
+    if (provider.kind === "preview") {
+      this.logPreview(message);
+      return;
+    }
+
+    if (provider.kind === "resend") {
+      await this.sendWithResend(provider, message);
+      return;
+    }
+
+    await this.sendWithSmtp(provider, message);
   }
 
   private getTransporter(host: string, port: number) {
@@ -191,6 +244,17 @@ export class MailerService {
     }
 
     return null;
+  }
+
+  private logDeliveryFailure(providerKind: MailProvider["kind"], message: MailMessage, error: unknown) {
+    this.logger.error(
+      `Email delivery failed via ${providerKind} to ${message.to}: ${message.subject}`,
+      error instanceof Error ? error.stack : undefined,
+    );
+    const hint = this.describeDeliveryFailure(providerKind, error);
+    if (hint) {
+      this.logger.error(hint);
+    }
   }
 
   private logPreview(message: MailMessage) {
