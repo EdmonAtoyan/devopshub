@@ -287,7 +287,7 @@ jobs:
           kubectl -n "${K8S_NAMESPACE}" rollout status deployment/web --timeout=300s
 
       - name: Roll back stateless workloads on failed rollout
-        if: ${{ steps.rollout.outcome == 'failure' }}
+        if: ${{ always() && steps.rollout.outcome == 'failure' }}
         run: |
           set -euo pipefail
           kubectl -n "${K8S_NAMESPACE}" rollout undo deployment/api || true
@@ -296,7 +296,7 @@ jobs:
           kubectl -n "${K8S_NAMESPACE}" rollout status deployment/web --timeout=300s || true
 
       - name: Deployment diagnostics
-        if: ${{ steps.rollout.outcome == 'failure' }}
+        if: ${{ always() && steps.rollout.outcome == 'failure' }}
         run: |
           set -euo pipefail
           kubectl -n "${K8S_NAMESPACE}" get statefulset,deploy,svc,ingress,pvc,endpoints,pods
@@ -308,7 +308,7 @@ jobs:
           kubectl -n "${K8S_NAMESPACE}" logs deployment/web --tail=200 || true
 
       - name: Fail deployment if rollout was unsuccessful
-        if: ${{ steps.rollout.outcome == 'failure' }}
+        if: ${{ always() && steps.rollout.outcome == 'failure' }}
         run: |
           echo "Deployment failed. Web and API were rolled back to the previous ReplicaSet. PostgreSQL was left unchanged for data safety."
           exit 1
