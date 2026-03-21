@@ -115,6 +115,28 @@ jobs:
           mkdir -p "$HOME/.kube"
           echo "${{ secrets.KUBE_CONFIG_DATA }}" | base64 --decode > "$HOME/.kube/config"
 
+      - name: Validate kubeconfig endpoint
+        run: |
+          set -euo pipefail
+          server="$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')"
+          test -n "$server" || { echo "Kubeconfig does not define a cluster server endpoint."; exit 1; }
+
+          if printf '%s' "$server" | grep -Eq '^https://(127\.0\.0\.1|localhost)(:|/|$)'; then
+            echo "KUBE_CONFIG_DATA points to ${server}, which is only reachable from the cluster host."
+            echo "Update the GitHub secret with a kubeconfig that uses your cluster's reachable EC2 private/public IP or load balancer endpoint."
+            exit 1
+          fi
+
+      - name: Validate cluster connectivity
+        run: |
+          set -euo pipefail
+          kubectl version --request-timeout=15s
+          permission="$(kubectl auth can-i get pods -n "${K8S_NAMESPACE}")"
+          if [ "$permission" != "yes" ]; then
+            echo "Configured kubeconfig cannot access namespace ${K8S_NAMESPACE}."
+            exit 1
+          fi
+
       - name: Sync Kubernetes secret
         env:
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
