@@ -105,13 +105,9 @@ jobs:
       - name: Validate deployment settings
         env:
           KUBE_CONFIG_DATA: ${{ secrets.KUBE_CONFIG_DATA }}
-          JWT_SECRET: ${{ secrets.JWT_SECRET }}
-          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
         run: |
           set -euo pipefail
           test -n "$KUBE_CONFIG_DATA" || { echo "Missing secret: KUBE_CONFIG_DATA"; exit 1; }
-          test -n "$JWT_SECRET" || { echo "Missing secret: JWT_SECRET"; exit 1; }
-          test -n "$POSTGRES_PASSWORD" || { echo "Missing secret: POSTGRES_PASSWORD"; exit 1; }
 
       - name: Configure kubeconfig
         run: |
@@ -141,6 +137,46 @@ jobs:
         run: |
           set -euo pipefail
           kubectl apply -f deploy/k8s/namespace.yaml
+
+          resolve_secret_env() {
+            local var_name="$1"
+            local required="${2:-false}"
+            local key="$var_name"
+            local value="${!var_name:-}"
+
+            if [ -z "$value" ] && kubectl -n "${K8S_NAMESPACE}" get secret "${K8S_SECRET_NAME}" >/dev/null 2>&1; then
+              local encoded
+              encoded="$(kubectl -n "${K8S_NAMESPACE}" get secret "${K8S_SECRET_NAME}" -o "jsonpath={.data.${key}}" 2>/dev/null || true)"
+              if [ -n "$encoded" ]; then
+                value="$(printf '%s' "$encoded" | base64 --decode)"
+              fi
+            fi
+
+            if [ "$required" = "true" ] && [ -z "$value" ]; then
+              echo "Missing required secret: ${key}. Set GitHub secret ${key} or ensure Kubernetes secret ${K8S_SECRET_NAME} already contains it."
+              exit 1
+            fi
+
+            printf -v "$var_name" '%s' "$value"
+          }
+
+          resolve_secret_env JWT_SECRET true
+          resolve_secret_env POSTGRES_PASSWORD true
+          resolve_secret_env GOOGLE_CLIENT_ID
+          resolve_secret_env GOOGLE_CLIENT_SECRET
+          resolve_secret_env GOOGLE_CALLBACK_URL
+          resolve_secret_env GIPHY_API_KEY
+          resolve_secret_env RESEND_API_KEY
+          resolve_secret_env RESEND_FROM
+          resolve_secret_env SMTP_HOST
+          resolve_secret_env SMTP_PORT
+          resolve_secret_env SMTP_SECURE
+          resolve_secret_env SMTP_USER
+          resolve_secret_env SMTP_PASS
+          resolve_secret_env SMTP_FROM
+          resolve_secret_env SMTP_REPLY_TO
+          resolve_secret_env TURNSTILE_SECRET_KEY
+          resolve_secret_env RECAPTCHA_SECRET_KEY
 
           callback_url="${GOOGLE_CALLBACK_URL:-${PUBLIC_SITE_URL%/}/api/auth/google/callback}"
           database_url="postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public"
